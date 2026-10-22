@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.6.0] - 2026-10-22
+## [0.6.0] - 2026-10-22 (commit: 9a936c6)
 ### Added
 - Phone and touch controls: hold a thumb to walk, swipe left or right to change lane, swipe up to jump, a big Feed button, on-screen Pause and Camera buttons.
 - Optional tilt steering (device motion): lean forward to walk, left or right to pick a lane; asks for permission on iPhone.
