@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.7.0] - 2026-10-22
+## [0.7.0] - 2026-10-22 (commit: ea962d2)
 ### Added
 - Feeding is now a moment: you walk up, crouch, set a bowl down and the cat eats (head bobbing, crunching, purring) while you reach out to it. Takes about two seconds, and anyone looking catches you.
 - Feel-good reward: heart burst, warm screen glow, happy tune, the player grins and hops with arms up, and a caption with the cat's name ("Zitouna finally eats today.").
