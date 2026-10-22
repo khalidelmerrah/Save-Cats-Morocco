@@ -30,3 +30,10 @@ Feeding, bust and fine, safe just outside the cone, three-hungry game over, titl
 - `mergeStatic()` merges static meshes per material per group; animated parts (limbs, shutters, cat head/tail, window cops) passed in a keep set.
 - Headless test browser has no GPU (3 fps); logic verified by script, real-GPU performance not yet measured.
 - Repo: https://github.com/khalidelmerrah/Save-Cats-Morocco (public).
+
+## v0.5.0: intro, difficulty, cameras, points, leaderboard
+- LEVELS table drives spawn chance (chance(base) * police), hiddenTime / look, warnTime * warn, fine range, points multiplier.
+- Security camera = wall watcher with CONE [2, 5.5]; window/alley CONE [3, 8]. sees() and cone meshes both read CONE.
+- Score = feed points (100 + 20 per streak step, cap 10) * mult + distance/2 * mult. TITLES thresholds 0/400/1200/2500/5000/9000.
+- Leaderboard: localStorage `feed-or-dont-board-v1`, entries validated on load, names stripped of control chars and < >, rendered with textContent. Verified a hostile name renders as text.
+- Headless screenshots time out on GPU-less browser; capture via renderer.domElement.toDataURL right after render instead.

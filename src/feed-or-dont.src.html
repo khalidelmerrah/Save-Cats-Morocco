@@ -45,29 +45,87 @@
   .stat b { display: block; font-size: 30px; font-variant-numeric: tabular-nums; }
   .stat span { font-size: 14px; color: var(--muted); }
   .law { font-size: 14px !important; color: var(--muted); }
+  .pill em { font-style: normal; font-size: 14px; font-weight: 800; color: var(--yellow); margin-left: 10px; }
+  .pill .sep { margin-left: 18px; }
+
+  #toast { position: fixed; left: 50%; top: 84px; transform: translateX(-50%); background: var(--yellow); color: var(--ink); font-size: 24px; font-weight: 900; padding: 8px 22px; border-radius: 12px; opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap; }
+  #toast.show { opacity: 1; }
+
+  .card.wide { width: min(1000px, 100%); max-height: 94vh; overflow: auto; display: grid; grid-template-columns: 1.3fr 1fr; gap: 32px; text-align: left; }
+  .card.wide p { margin-left: 0; }
+  .card.wide .keys { margin-left: 0; }
+  .levels { display: flex; gap: 10px; margin-top: 22px; }
+  .levels .lvl { margin: 0; flex: 1; background: #fff; color: var(--ink); border: 2px solid var(--line); border-radius: 14px; padding: 10px 8px; font-size: 18px; }
+  .lvl small { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 2px; }
+  .lvl[aria-checked="true"] { border-color: var(--blue); background: #eaf0ff; }
+  .board h3 { margin: 0 0 10px; font-size: 22px; }
+  .board ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .board li { display: grid; grid-template-columns: 26px 1fr auto; gap: 0 10px; background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; font-size: 15px; }
+  .board li.me { border-color: var(--blue); background: #eaf0ff; }
+  .board li.empty { display: block; color: var(--muted); }
+  .board .r { font-weight: 900; color: var(--muted); grid-row: span 2; align-self: center; }
+  .board .n { font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .board .s { font-weight: 900; font-variant-numeric: tabular-nums; text-align: right; }
+  .board .t { grid-column: 2 / 4; font-size: 12.5px; color: var(--muted); }
+  .big-score { font-size: 56px; font-weight: 900; margin-top: 6px; font-variant-numeric: tabular-nums; }
+  .earned { font-size: 20px; font-weight: 800; color: var(--blue); }
+  #nameForm { display: none; margin-top: 18px; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #nameForm.show { display: flex; }
+  #nameForm label { width: 100%; font-weight: 800; color: var(--blue); }
+  #nameInput { font: 700 18px "Segoe UI", system-ui, sans-serif; padding: 12px 14px; border: 2px solid var(--line); border-radius: 12px; width: 230px; color: var(--ink); }
+  #nameInput:focus-visible { outline: 3px solid var(--blue); outline-offset: 1px; }
+  #nameForm button { margin-top: 0; }
+  @media (max-width: 860px) { .card.wide { grid-template-columns: 1fr; } }
+  .card.intro { text-align: left; width: min(720px, 100%); }
+  .card.intro h2 { font-size: 46px; line-height: 1.1; margin-top: 6px; }
+  .card.intro p { margin-left: 0; font-size: 21px; }
+  .step { font-size: 16px; font-weight: 800; color: var(--blue); }
+  .dots { margin-top: 26px; display: flex; gap: 8px; }
+  .dots span { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+  .dots span.on { background: var(--red); }
+  .intro-nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  button.ghost { background: transparent; color: var(--ink); border: 2px solid var(--line); }
+  .start-row { display: flex; gap: 12px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
 <div id="hud" aria-live="polite">
-  <div class="pill"><span>Cats fed</span><b id="fed">0</b></div>
+  <div class="pill"><span>Score</span><b id="score">0</b><em id="rank">Passer-by</em></div>
   <div class="pill" id="walletPill"><span>Wallet</span><b id="wallet">6,000 MAD</b></div>
-  <div class="pill"><span>Walked</span><b id="dist">0 m</b></div>
+  <div class="pill"><span>Cats fed</span><b id="fed">0</b><span class="sep">Walked</span><b id="dist">0 m</b></div>
 </div>
+<div id="toast" role="status"></div>
 <div id="banner" role="status">They're watching you</div>
 <div id="hint">Hold &uarr; to walk</div>
 <div id="camtip" class="pill"><kbd>C</kbd> First person</div>
 
-<div class="overlay show" id="titleCard">
-  <div class="card" role="dialog" aria-labelledby="titleH">
-    <h1 id="titleH">Feed or Don't</h1>
-    <p>Walk the medina and feed the street cats. Police watch from windows and alleys, and walk or cross the street ahead of you. Feed a cat while they're looking and you pay a fine of 500 to 2,000 MAD.</p>
-    <div class="keys">
-      <kbd>&uarr;</kbd><span>Hold to walk</span><kbd>Space</kbd><span>Feed a cat</span>
-      <span><kbd>&larr;</kbd> <kbd>&rarr;</kbd></span><span>Change lane</span><kbd>Shift</kbd><span>Jump</span>
-      <kbd>C</kbd><span>Switch camera</span><kbd>P</kbd><span>Pause</span>
+<div class="overlay show" id="introCard">
+  <div class="card intro" role="dialog" aria-labelledby="introH" aria-live="polite">
+    <div class="step" id="introStep"></div>
+    <h2 id="introH"></h2>
+    <p id="introBody"></p>
+    <div class="dots" id="introDots" aria-hidden="true"></div>
+    <div class="intro-nav"><button class="ghost" id="introSkip">Skip intro</button><button id="introNext">Next</button></div>
+  </div>
+</div>
+<div class="overlay" id="titleCard">
+  <div class="card wide" role="dialog" aria-labelledby="titleH">
+    <div>
+      <h1 id="titleH">Feed or Don't</h1>
+      <p>Walk the medina and feed the street cats. Police watch from windows and alleys and walk the street, and security cameras film it. Feed a cat while anyone is watching and you pay a fine of 500 to 2,000 MAD.</p>
+      <div class="keys">
+        <kbd>&uarr;</kbd><span>Hold to walk</span><kbd>Space</kbd><span>Feed a cat</span>
+        <span><kbd>&larr;</kbd> <kbd>&rarr;</kbd></span><span>Change lane</span><kbd>Shift</kbd><span>Jump</span>
+        <kbd>C</kbd><span>Switch camera</span><kbd>P</kbd><span>Pause</span>
+      </div>
+      <div class="levels" role="radiogroup" aria-label="Difficulty">
+        <button class="lvl" role="radio" data-level="easy">1 Easy<small>Fewer watchers, 1x points</small></button>
+        <button class="lvl" role="radio" data-level="normal">2 Normal<small>2x points</small></button>
+        <button class="lvl" role="radio" data-level="hard">3 Hard<small>More watchers, 3x points</small></button>
+      </div>
+      <div class="start-row"><button id="startBtn">Start walking</button><button class="ghost" id="aboutBtn">About the law</button></div>
     </div>
-    <button id="startBtn">Start walking</button>
-    <p class="law" id="bestLine"></p>
+    <div class="board"><h3>Leaderboard</h3><ol id="boardTitle"></ol></div>
   </div>
 </div>
 <div class="overlay" id="pauseCard">
@@ -77,16 +135,26 @@
   <div class="card" role="alertdialog"><h2>Caught!</h2><div class="fine" id="fineAmt"></div><p id="fineWhy"></p><p class="law">Law 19.25: feeding stray animals in public</p></div>
 </div>
 <div class="overlay" id="overCard">
-  <div class="card" role="dialog">
-    <h2 id="overWhy"></h2>
-    <div class="stats">
-      <div class="stat"><b id="sFed"></b><span>Cats fed</span></div>
-      <div class="stat"><b id="sMissed"></b><span>Cats walked past</span></div>
-      <div class="stat"><b id="sDist"></b><span>Distance walked</span></div>
-      <div class="stat"><b id="sFines"></b><span>Fines paid</span></div>
+  <div class="card wide" role="dialog">
+    <div>
+      <h2 id="overWhy"></h2>
+      <div class="big-score" id="sScore"></div>
+      <div class="earned" id="sTitle"></div>
+      <form id="nameForm">
+        <label for="nameInput">New high score! Enter your name</label>
+        <input id="nameInput" maxlength="16" autocomplete="off" spellcheck="false">
+        <button type="submit">Save score</button>
+      </form>
+      <div class="stats">
+        <div class="stat"><b id="sFed"></b><span>Cats fed</span></div>
+        <div class="stat"><b id="sMissed"></b><span>Cats walked past</span></div>
+        <div class="stat"><b id="sDist"></b><span>Distance walked</span></div>
+        <div class="stat"><b id="sFines"></b><span>Fines paid</span></div>
+      </div>
+      <p class="law">Law 19.25 (2026) sets a fine of 500 to 2,000 MAD for feeding strays in streets and other public places. Care is meant to go through licensed centres.</p>
+      <button id="againBtn">Walk again</button>
     </div>
-    <p class="law">Law 19.25 (2026) sets a fine of 500 to 2,000 MAD for feeding strays in streets and other public places. Care is meant to go through licensed centres.</p>
-    <button id="againBtn">Walk again</button>
+    <div class="board"><h3>Leaderboard</h3><ol id="boardOver"></ol></div>
   </div>
 </div>
 
@@ -101,14 +169,17 @@ const MAX_SPEED = 6.5, ACCEL = 9, BRAKE = 14; // you only move while holding UP
 const WALLS = ["#e2734a", "#f0a73a", "#d9686a", "#f3e7d3", "#3d7bd9", "#e89a5c"];
 const DOORS = ["#2f5fd0", "#18a06a", "#f2a922", "#d63a3a"];
 const SHUTTERS = ["#18a06a", "#2f5fd0", "#d63a3a"];
-const COATS = [["#f08a24", "#3a8f3a"], ["#f4f1ea", "#2f5fd0"], ["#2b2b2b", "#e0c02a"], ["#9a9a9a", "#3a8f3a"], ["#c8763a", "#2b2b2b"]];
+// [coat, eyes, stripes or null, white chest]
+const COATS = [["#f08a24", "#3a8f3a", "#c4621a", true], ["#f4f1ea", "#2f5fd0", null, false], ["#2b2b2b", "#e0c02a", null, true],
+  ["#9a9a9a", "#3a8f3a", "#6a6a6a", false], ["#c8763a", "#3a8f3a", "#8f4f22", true]];
 const FLAGS = ["#d63a3a", "#f2a922", "#18a06a", "#2f5fd0", "#f3e7d3"];
 const PAL = {
   sky: "#7cc6f2", haze: "#cfe8f5", trim: "#fff4e0", dark: "#2a1a14", alley: "#5a3a2e", walk: "#ecd2a8", curb: "#c58f5c",
   skin: "#c68a5e", hair: "#2a1d16", hoodie: "#d63a3a", jeans: "#3b3f6b", bag: "#a8692e", shoe: "#2a1d16",
   copBlue: "#2b4fb3", copNavy: "#1b2a5c", gold: "#e0b53a", white: "#f7f3ea",
   crate: "#c27a3a", crateBand: "#9a5a26", mint: "#2fa35a", cart: "#18a06a", wheel: "#3a2620", orange: "#f28a1e",
-  pot: "#c8552f", leaf: "#2f9a4a", cone: "#ffe066", coneLine: "#ffd84a", bowl: "#2f5fd0",
+  pot: "#c8552f", leaf: "#2f9a4a", cone: "#e0402f", coneLine: "#b3261e", bowl: "#2f5fd0",
+  skinDark: "#b77a50", hoodieDark: "#b02a2a", copJacket: "#1f3570", copShirt: "#9cc3ea", inEar: "#f2a0a8",
 };
 
 // ---------- renderer, scene, lights ----------
@@ -207,7 +278,7 @@ function mat(color, key = "", extra = {}) {
 const MAT = {
   street: new THREE.MeshStandardMaterial({ map: TEX.pavers, roughness: 0.95 }),
   awning: new THREE.MeshStandardMaterial({ map: TEX.stripes, roughness: 0.9 }),
-  cone: new THREE.MeshBasicMaterial({ color: PAL.cone, transparent: true, opacity: 0.42, depthWrite: false }),
+  cone: new THREE.MeshBasicMaterial({ color: PAL.cone, transparent: true, opacity: 0.4, depthWrite: false }),
   coneLine: new THREE.LineBasicMaterial({ color: PAL.coneLine }),
   far: new THREE.MeshBasicMaterial({ color: "#e6c8a2", fog: false }),
   cloud: new THREE.MeshBasicMaterial({ color: "#ffffff", fog: false }),
@@ -222,6 +293,7 @@ const GEO = {
   cyl: new THREE.CylinderGeometry(1, 1, 1, 22),
   cone: new THREE.ConeGeometry(1, 1, 14),
   bowl: new THREE.CylinderGeometry(0.24, 0.16, 0.12, 22),
+  capCrown: new THREE.CylinderGeometry(0.33, 0.28, 1, 24),
   street: new THREE.PlaneGeometry(STREET * 2, CHUNK),
   flag: new THREE.BufferGeometry()
     .setAttribute("position", new THREE.Float32BufferAttribute([-0.3, 0, 0, 0.3, 0, 0, 0, -0.6, 0], 3))
@@ -287,70 +359,119 @@ function mergeStatic(group, keep = new Set()) {
 }
 
 // ---------- models ----------
-function makePerson(shirt, pants, cop) {
+function makeFace(face, moustache = false) {
+  part(GEO.sphere, PAL.skin, face, 0, 0, 0, 0.28, 0.3, 0.28);
+  [-1, 1].forEach(s => {
+    part(GEO.sphere, PAL.skin, face, s * 0.27, 0, 0, 0.06, 0.09, 0.05);
+    part(GEO.sphere, "#ffffff", face, s * 0.1, 0.04, 0.235, 0.065, 0.075, 0.04);
+    part(GEO.sphere, "#1d1410", face, s * 0.1, 0.035, 0.268, 0.034, 0.045, 0.015);
+    part(GEO.box, PAL.hair, face, s * 0.1, 0.135, 0.255, 0.11, 0.025, 0.02).rotation.z = s * -0.15;
+    part(GEO.sphere, "#e58a7a", face, s * 0.17, -0.08, 0.215, 0.05, 0.035, 0.02);
+  });
+  part(GEO.sphere, PAL.skinDark, face, 0, -0.02, 0.275, 0.045, 0.05, 0.04);
+  part(torus(0.07, 0.016, Math.PI), "#8a2a2a", face, 0, -0.07, 0.255).rotation.z = Math.PI;
+  if (moustache) part(GEO.box, PAL.hair, face, 0, -0.07, 0.272, 0.17, 0.035, 0.03);
+}
+function addCopCap(face) {
+  part(GEO.capCrown, PAL.copNavy, face, 0, 0.27, -0.01, 1, 0.18, 1);
+  part(GEO.cyl, "#141414", face, 0, 0.19, 0, 0.285, 0.06, 0.285);
+  part(GEO.sphere, PAL.gold, face, 0, 0.27, 0.3, 0.05, 0.05, 0.02);
+  part(GEO.cyl, "#141414", face, 0, 0.17, 0.2, 0.2, 0.025, 0.14).rotation.x = 0.15;
+}
+function makePerson(kind) {
+  const cop = kind === "cop", top = cop ? PAL.copJacket : PAL.hoodie, pants = cop ? PAL.copNavy : PAL.jeans;
   const root = new THREE.Group(), body = new THREE.Group();
   root.add(body);
   const legs = [-1, 1].map(s => {
     const pv = new THREE.Group(); pv.position.set(s * 0.15, 0.88, 0); body.add(pv);
     part(capsule(0.12, 0.5), pants, pv, 0, -0.42, 0);
-    part(GEO.sphere, PAL.shoe, pv, 0, -0.82, 0.07, 0.13, 0.09, 0.19);
+    if (cop) part(GEO.sphere, "#141414", pv, 0, -0.82, 0.07, 0.13, 0.09, 0.2);
+    else {
+      part(GEO.sphere, PAL.white, pv, 0, -0.81, 0.07, 0.14, 0.1, 0.21);
+      part(GEO.box, PAL.hoodie, pv, 0, -0.875, 0.07, 0.26, 0.035, 0.4);
+    }
     return pv;
   });
-  part(capsule(0.3, 0.45), shirt, body, 0, 1.3, 0, 1, 1, 0.8);
+  part(capsule(0.3, 0.45), top, body, 0, 1.3, 0, 1, 1, 0.8);
+  if (cop) {
+    part(GEO.cyl, "#141414", body, 0, 1.0, 0, 0.31, 0.08, 0.25);
+    part(GEO.box, "#c9c9c9", body, 0, 1.0, 0.25, 0.09, 0.07, 0.02);
+    part(GEO.box, "#141414", body, 0.3, 0.92, 0.05, 0.08, 0.2, 0.14);
+    [1.18, 1.34, 1.5].forEach(y => part(GEO.sphere, PAL.gold, body, 0, y, 0.245, 0.03, 0.03, 0.02));
+    [-1, 1].forEach(s => part(GEO.box, PAL.gold, body, s * 0.27, 1.73, 0, 0.16, 0.04, 0.2));
+    part(GEO.box, PAL.gold, body, -0.14, 1.52, 0.235, 0.09, 0.11, 0.02);
+    part(GEO.cyl, PAL.copShirt, body, 0, 1.72, 0, 0.17, 0.08, 0.15);
+  } else {
+    part(torus(0.19, 0.08, Math.PI * 2), top, body, 0, 1.72, -0.1).rotation.x = Math.PI / 2 - 0.3;
+    part(GEO.box, PAL.hoodieDark, body, 0, 1.12, 0.23, 0.36, 0.17, 0.04);
+    [-1, 1].forEach(s => part(GEO.cyl, PAL.white, body, s * 0.06, 1.5, 0.245, 0.012, 0.18, 0.012));
+  }
   const arms = [-1, 1].map(s => {
     const pv = new THREE.Group(); pv.position.set(s * 0.42, 1.58, 0); body.add(pv);
-    part(capsule(0.09, 0.45), shirt, pv, 0, -0.32, 0);
+    part(capsule(0.09, 0.45), top, pv, 0, -0.32, 0);
     part(GEO.sphere, PAL.skin, pv, 0, -0.66, 0, 0.1, 0.1, 0.1);
     return pv;
   });
-  part(GEO.sphere, PAL.skin, body, 0, 2.0, 0, 0.28, 0.3, 0.28);
-  [-1, 1].forEach(s => part(GEO.sphere, "#1d1410", body, s * 0.1, 2.03, 0.25, 0.04, 0.05, 0.03));
-  if (cop) {
-    part(GEO.cyl, PAL.copNavy, body, 0, 2.24, 0, 0.3, 0.17, 0.3);
-    part(GEO.cyl, PAL.gold, body, 0, 2.18, 0, 0.305, 0.05, 0.305);
-    part(GEO.cyl, PAL.copNavy, body, 0, 2.16, 0.2, 0.2, 0.03, 0.16);
-    part(GEO.cyl, PAL.white, body, 0, 1.02, 0, 0.31, 0.07, 0.25);
-    part(GEO.box, PAL.gold, body, 0.14, 1.48, 0.24, 0.1, 0.12, 0.03);
-  } else {
-    part(GEO.sphere, PAL.hair, body, 0, 2.1, -0.04, 0.3, 0.22, 0.29);
+  const head = new THREE.Group(); head.position.set(0, 1.8, 0); body.add(head);
+  const face = new THREE.Group(); face.position.y = 0.2; head.add(face);
+  makeFace(face, cop && rnd() < 0.5);
+  if (cop) addCopCap(face);
+  else {
+    part(GEO.sphere, PAL.hair, face, 0, 0.1, -0.08, 0.3, 0.22, 0.27);
+    [[-0.12, 0.27, 0.1], [0.05, 0.3, 0.12], [0.16, 0.24, 0.08]].forEach(([x, y, z]) => part(GEO.sphere, PAL.hair, face, x, y, z, 0.11, 0.08, 0.1));
   }
   castAll(root);
   [...legs, ...arms].forEach(pv => mergeStatic(pv));
-  return { root, body, legs, arms, keep: new Set([...legs, ...arms]) };
+  mergeStatic(head);
+  return { root, body, legs, arms, head, keep: new Set([...legs, ...arms, head]) };
 }
 function animatePerson(m, phase, amount) {
   const s = Math.sin(phase) * amount;
   m.legs[0].rotation.x = s; m.legs[1].rotation.x = -s;
   m.arms[0].rotation.x = -s * 0.8; m.arms[1].rotation.x = s * 0.8;
-  m.body.position.y = Math.abs(Math.cos(phase)) * amount * 0.08;
+  m.body.position.y = Math.abs(Math.cos(phase)) * amount * 0.09;
+  m.body.rotation.y = Math.sin(phase) * amount * 0.12;
+  m.body.scale.y = 1 + Math.sin(time * 2.2) * 0.012 * Math.max(0, 1 - amount * 3); // breathing while idle
 }
 function makePlayer() {
-  const m = makePerson(PAL.hoodie, PAL.jeans, false);
+  const m = makePerson("player");
   castAll(part(GEO.box, PAL.bag, m.body, 0.5, 1.05, 0, 0.2, 0.32, 0.34));
-  part(GEO.box, PAL.bag, m.body, 0.18, 1.55, 0, 0.5, 0.05, 0.05).rotation.z = -0.9;
+  castAll(part(GEO.box, PAL.bag, m.body, 0.18, 1.55, 0, 0.5, 0.05, 0.05)).rotation.z = -0.9;
   mergeStatic(m.body, m.keep);
   m.root.rotation.y = Math.PI;
   scene.add(m.root);
   return m;
 }
-function makeCat(coat, eye) {
+function makeCat([coat, eye, stripe, chest]) {
   const root = new THREE.Group(), body = new THREE.Group();
   root.add(body);
   part(GEO.sphere, coat, body, 0, 0.36, -0.05, 0.3, 0.36, 0.34);
-  const head = new THREE.Group(); head.position.set(0, 0.8, 0.08); body.add(head);
-  part(GEO.sphere, coat, head, 0, 0, 0, 0.25, 0.22, 0.23);
+  if (chest) part(GEO.sphere, PAL.white, body, 0, 0.42, 0.14, 0.17, 0.22, 0.14);
+  [-1, 1].forEach(s => part(GEO.sphere, chest ? PAL.white : coat, body, s * 0.11, 0.06, 0.2, 0.09, 0.07, 0.12));
+  if (stripe) [-0.15, 0, 0.15].forEach(z => part(torus(0.31, 0.03, Math.PI), stripe, body, 0, 0.4, z - 0.05));
+  const head = new THREE.Group(); head.position.set(0, 0.84, 0.08); body.add(head);
+  part(GEO.sphere, coat, head, 0, 0, 0, 0.28, 0.25, 0.26);
+  part(GEO.sphere, chest ? PAL.white : coat, head, 0, -0.08, 0.17, 0.13, 0.09, 0.09);
   [-1, 1].forEach(s => {
-    part(GEO.cone, coat, head, s * 0.13, 0.22, 0, 0.08, 0.17, 0.08).rotation.z = -s * 0.3;
-    part(GEO.sphere, eye, head, s * 0.09, 0.03, 0.2, 0.045, 0.055, 0.03);
+    part(GEO.cone, coat, head, s * 0.15, 0.22, 0, 0.09, 0.18, 0.09).rotation.z = -s * 0.3;
+    part(GEO.cone, PAL.inEar, head, s * 0.15, 0.21, 0.035, 0.055, 0.12, 0.04).rotation.z = -s * 0.3;
+    part(GEO.sphere, eye, head, s * 0.1, 0.04, 0.215, 0.06, 0.07, 0.035);
+    part(GEO.sphere, "#111111", head, s * 0.1, 0.04, 0.245, 0.018, 0.05, 0.012);
+    part(GEO.sphere, "#ffffff", head, s * 0.08, 0.07, 0.25, 0.012, 0.012, 0.008);
+    for (let k = -1; k <= 1; k++)
+      part(GEO.cyl, "#f4f1ea", head, s * 0.2, -0.07 + k * 0.03, 0.2, 0.006, 0.22, 0.006).rotation.z = Math.PI / 2 + s * k * 0.15;
   });
-  part(GEO.sphere, "#e07a8a", head, 0, -0.05, 0.225, 0.03, 0.025, 0.02);
-  const tail = part(torus(0.24, 0.045, Math.PI * 1.1), coat, body, 0, 0.06, -0.05);
-  tail.rotation.x = -Math.PI / 2;
+  part(GEO.sphere, "#e07a8a", head, 0, -0.035, 0.265, 0.03, 0.022, 0.02);
+  if (stripe) [-0.06, 0, 0.06].forEach(x => part(GEO.box, stripe, head, x, 0.15, 0.2, 0.025, 0.08, 0.02));
+  const tail = new THREE.Group(); tail.position.set(0, 0.12, -0.33); tail.rotation.x = -0.9; body.add(tail);
+  part(capsule(0.045, 0.45), coat, tail, 0, 0.27, 0);
+  if (stripe) [0.2, 0.36].forEach(y => { part(torus(0.05, 0.015, Math.PI * 2), stripe, tail, 0, y, 0).rotation.x = Math.PI / 2; });
   const bowl = new THREE.Group(); bowl.position.set(0.55, 0, 0.15); bowl.visible = false; root.add(bowl);
   part(GEO.bowl, PAL.bowl, bowl, 0, 0.06, 0);
   const food = part(GEO.sphere, PAL.orange, bowl, 0, 0.12, 0, 0.18, 0.04, 0.18);
   castAll(root);
   mergeStatic(head);
+  mergeStatic(tail);
   mergeStatic(body, new Set([head, tail]));
   return { root, body, head, tail, bowl, food };
 }
@@ -377,13 +498,33 @@ function makeBunting() {
 }
 function makeWindowCop() {
   const g = new THREE.Group();
-  part(GEO.sphere, PAL.copBlue, g, 0, -0.55, 0, 0.45, 0.25, 0.3);
-  part(GEO.sphere, PAL.skin, g, 0, -0.05, 0, 0.26, 0.28, 0.26);
-  [-1, 1].forEach(s => part(GEO.sphere, "#1d1410", g, s * 0.09, -0.02, 0.24, 0.04, 0.05, 0.03));
-  part(GEO.cyl, PAL.copNavy, g, 0, 0.22, 0, 0.28, 0.15, 0.28);
-  part(GEO.cyl, PAL.gold, g, 0, 0.16, 0, 0.285, 0.05, 0.285);
-  part(GEO.cyl, PAL.copNavy, g, 0, 0.15, 0.19, 0.2, 0.03, 0.15);
+  part(GEO.sphere, PAL.copJacket, g, 0, -0.55, 0, 0.45, 0.25, 0.3);
+  [-1, 1].forEach(s => part(GEO.box, PAL.gold, g, s * 0.3, -0.36, 0, 0.16, 0.04, 0.2));
+  part(GEO.cyl, PAL.copShirt, g, 0, -0.3, 0, 0.17, 0.08, 0.15);
+  const face = new THREE.Group(); face.position.y = -0.02; g.add(face);
+  makeFace(face, rnd() < 0.5);
+  addCopCap(face);
   return mergeStatic(g);
+}
+// Wall-mounted security camera; the head swivels and its light turns red while recording.
+function makeSecurityCam(w) {
+  const g = new THREE.Group();
+  at(g, w.side * (FACE - 0.02), w.y, w.z);
+  part(GEO.box, "#7d838a", g, 0, 0, 0, 0.05, 0.32, 0.32);
+  part(GEO.box, "#9aa0a6", g, -w.side * 0.25, 0, 0, 0.5, 0.08, 0.08);
+  const head = new THREE.Group(); head.position.set(-w.side * 0.5, -0.05, 0); head.rotation.order = "YXZ"; g.add(head);
+  part(GEO.box, "#eef0f2", head, 0, 0, 0.12, 0.24, 0.22, 0.5);
+  part(GEO.box, "#c9ced3", head, 0, 0.13, 0.16, 0.3, 0.04, 0.58);
+  part(GEO.cyl, "#1d2329", head, 0, 0, 0.38, 0.085, 0.06, 0.085).rotation.x = Math.PI / 2;
+  part(GEO.sphere, "#3d6fa8", head, 0, 0, 0.41, 0.06, 0.06, 0.02);
+  const ledMat = new THREE.MeshStandardMaterial({ color: "#3a0d0d", emissive: "#000000" });
+  const led = part(GEO.sphere, ledMat, head, 0.08, -0.07, 0.37, 0.028, 0.028, 0.028);
+  castAll(g);
+  mergeStatic(head, new Set([led]));
+  mergeStatic(g, new Set([head]));
+  g.userData.dispose.push(ledMat);
+  scene.add(g);
+  return { g, head, led };
 }
 
 // ---------- buildings ----------
@@ -514,6 +655,7 @@ const sfx = {
   },
   crash: () => { hiss(0.4, 0.08, 0, 200); tone(120, 0.5, { vol: 0.06, slide: 50 }); },
   start: () => [294, 370, 440, 587].forEach((f, i) => tone(f, 0.1, { type: "triangle", vol: 0.06, at: i * 0.08 })),
+  title: () => [392, 494, 587, 784, 988].forEach((f, i) => tone(f, 0.14, { type: "triangle", vol: 0.06, at: i * 0.09 })),
 };
 // Background loop in a Hijaz-flavoured scale (D Eb F# G A Bb C).
 const MELODY = [294, 370, 392, 440, 392, 370, 311, 294, 440, 466, 440, 392, 370, 392, 370, 0];
@@ -531,6 +673,16 @@ setInterval(() => {
 
 // ---------- world generation ----------
 const rnd = Math.random;
+// Difficulty: police = how many watchers spawn, look = how often they look, warn = warning length.
+const LEVELS = {
+  easy: { label: "Easy", police: 0.45, look: 0.65, warn: 1.5, fines: [500, 1000], mult: 1 },
+  normal: { label: "Normal", police: 1, look: 1, warn: 1, fines: [500, 2000], mult: 2 },
+  hard: { label: "Hard", police: 1.6, look: 1.4, warn: 0.7, fines: [1000, 2000], mult: 3 },
+};
+let level = "normal";
+try { const v = localStorage.getItem("feed-or-dont-level"); if (v in LEVELS) level = v; } catch (e) { /* storage blocked */ }
+const L = () => LEVELS[level];
+const chance = base => rnd() < Math.min(0.9, base * L().police);
 const pick = a => a[Math.floor(rnd() * a.length)];
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 let segs = [], items = [], watchers = [], chunks = [], genZ, rowZ, nextChunk;
@@ -549,11 +701,13 @@ function coneMesh(points) {
   return g;
 }
 const bangMat = new THREE.SpriteMaterial({ map: TEX.bang, depthTest: false });
+// Near and far half-widths (m) of the floor cone for wall-mounted watchers.
+const CONE = { window: [3, 8], alley: [3, 8], camera: [2, 5.5] };
 function addWatcher(w) {
   Object.assign(w, { state: "hidden", t: 0.5 + rnd() * 4, dur: 1, walkT: 0, gone: false, face: 0 });
-  if (w.kind === "window" || w.kind === "alley") {
-    const s = w.side;
-    w.cone = coneMesh([[s * STREET, w.z - 3], [s * STREET, w.z + 3], [-s * STREET, w.z + 8], [-s * STREET, w.z - 8]]);
+  if (CONE[w.kind]) {
+    const s = w.side, [n, f] = CONE[w.kind];
+    w.cone = coneMesh([[s * STREET, w.z - n], [s * STREET, w.z + n], [-s * STREET, w.z + f], [-s * STREET, w.z - f]]);
     w.cone.position.y = 0.04;
   } else {
     const wide = w.kind === "walker" ? x => clamp(w.x + x, -STREET, STREET) - w.x : x => x;
@@ -565,10 +719,13 @@ function addWatcher(w) {
   w.bang.visible = false;
   scene.add(w.bang);
   if (w.type === "cop") {
-    w.model = makePerson(PAL.copBlue, PAL.copNavy, true);
+    w.model = makePerson("cop");
     mergeStatic(w.model.body, w.model.keep);
     scene.add(w.model.root);
     w.mesh = w.model.root;
+  } else if (w.kind === "camera") {
+    w.cam = makeSecurityCam(w);
+    w.mesh = w.cam.g;
   }
   watchers.push(w);
   return w;
@@ -582,7 +739,7 @@ function generate(upto) {
       if (z0 > 25 && rnd() < 0.2) {
         const s = { side, z0, z1: z0 + 4, alley: true };
         makeAlley(s);
-        if (z0 > 60 && rnd() < 0.5) items.push(addWatcher({ kind: "alley", type: "cop", side, x: side * 6.4, z: z0 + 2 }));
+        if (z0 > 60 && chance(0.3)) items.push(addWatcher({ kind: "alley", type: "cop", side, x: side * 6.4, z: z0 + 2 }));
         segs.push(s); genZ[side] += 4;
         continue;
       }
@@ -593,11 +750,12 @@ function generate(upto) {
       };
       for (let wz = z0 + 1.6; wz < z0 + len - 1.4; wz += 3)
         for (const wy of h > 11 ? [4.2, 7.8] : [4.2]) b.windows.push({ z: wz, y: wy, open: rnd() < 0.4, plant: rnd() < 0.5, cop: null });
-      if (z0 > 60 && rnd() < 0.35 && b.windows.length) {
+      if (z0 > 60 && chance(0.18) && b.windows.length) {
         const w = pick(b.windows);
         w.cop = addWatcher({ kind: "window", side, x: side * FACE, z: w.z, y: w.y });
         w.cop.win = w;
       }
+      if (z0 > 40 && chance(0.14)) addWatcher({ kind: "camera", side, x: side * FACE, z: z0 + 0.8, y: 6.0 });
       makeBuilding(b);
       segs.push(b); genZ[side] += len;
     }
@@ -616,16 +774,18 @@ function spawnRow(z) {
       addItem({ type, x: LANES[lanes[used]], z }, type === "crate" ? makeCrate() : makeCart());
     }
   }
-  if (rnd() < 0.65) {
-    const [coat, eye] = pick(COATS);
-    const cat = { type: "cat", x: LANES[lanes[used]], z, fed: false, missed: false, heartT: 0, eatT: 0, seed: rnd() * 10 };
-    cat.model = makeCat(coat, eye);
+  const spawnCat = lane => {
+    const cat = { type: "cat", x: LANES[lane], z, fed: false, missed: false, heartT: 0, eatT: 0, seed: rnd() * 10 };
+    cat.model = makeCat(pick(COATS));
     addItem(cat, cat.model.root);
-    used++;
+  };
+  if (rnd() < 0.8) {
+    spawnCat(lanes[used++]);
+    if (used < 3 && rnd() < 0.3) spawnCat(lanes[used++]);
   }
-  if (z > 70 && used < 3 && rnd() < 0.14)
+  if (z > 70 && used < 3 && chance(0.06))
     items.push(addWatcher({ kind: "walker", type: "cop", x: LANES[lanes[used]], z: z + 3.5 }));
-  if (z > 90 && rnd() < 0.08) {
+  if (z > 90 && chance(0.04)) {
     const dir = rnd() < 0.5 ? 1 : -1;
     items.push(addWatcher({ kind: "crosser", type: "cop", x: -dir * 4.8, dir, z: z + 4 }));
   }
@@ -633,9 +793,11 @@ function spawnRow(z) {
 }
 
 // ---------- game state ----------
-let state = "title", player, wallet, fed, missed, finesPaid, caught, overReason = "", toss = null;
-let best = 0, seenNow = false, time = 0, feedPressed = false, camMode = 0, camBlend = 0;
-try { best = +localStorage.getItem("feed-or-dont-best") || 0; } catch (e) { /* storage blocked: best stays 0 */ }
+let state = "intro", player, wallet, fed, missed, finesPaid, caught, overReason = "", toss = null;
+let seenNow = false, time = 0, feedPressed = false, camMode = 0, camBlend = 0;
+let score = 0, feedPoints = 0, streak = 0, currentTitle = "";
+const TITLES = [[0, "Passer-by"], [400, "Cat Friend"], [1200, "Street Feeder"], [2500, "Medina Guardian"], [5000, "Saver of Cats"], [9000, "Legend of the Strays"]];
+const titleFor = pts => TITLES.filter(([min]) => pts >= min).pop()[1];
 
 const tossBall = part(GEO.sphere, PAL.orange, scene, 0, 0, 0, 0.13, 0.13, 0.13);
 tossBall.visible = false;
@@ -652,24 +814,27 @@ function reset() {
   if (!player) player = { model: makePlayer() };
   Object.assign(player, { lane: 1, x: 0, y: 0, vy: 0, z: 0, speed: 0, runT: 0, grace: 0, target: null });
   wallet = START_WALLET; fed = 0; missed = 0; finesPaid = 0; caught = null; toss = null; seenNow = false;
+  score = 0; feedPoints = 0; streak = 0; currentTitle = titleFor(0);
   generate(VIEW + 10);
 }
 
 const difficulty = () => clamp(player.z / 2000, 0, 1);
-const hiddenTime = () => (2.2 + rnd() * 3.5) * (1 - 0.45 * difficulty());
-const warnTime = () => 1.1 - 0.45 * difficulty();
+const hiddenTime = () => (3 + rnd() * 4) * (1 - 0.35 * difficulty()) / L().look;
+const warnTime = () => (1.2 - 0.4 * difficulty()) * L().warn;
 const watchTime = () => 1.6 + rnd() * 1.6;
 
 // Vision rules mirror the cones drawn on the ground, so what you see is what counts.
 function sees(w) {
   if (w.state !== "watch" || w.gone) return false;
   const p = player, dz = w.z - p.z;
-  if (w.kind === "window" || w.kind === "alley") return Math.abs(dz) < 3 + 5 * (STREET - w.side * p.x) / (2 * STREET);
+  if (CONE[w.kind]) { const [n, f] = CONE[w.kind]; return Math.abs(dz) < n + (f - n) * (STREET - w.side * p.x) / (2 * STREET); }
   return dz > -1 && dz < 20 && Math.abs(w.x - p.x) < 0.5 + Math.max(0, dz) * 0.4;
 }
 
 function bust(w, reason) {
-  const fine = 500 + Math.floor(rnd() * 16) * 100; // 500 to 2,000 MAD, the range in Law 19.25
+  const [lo, hi] = L().fines; // always inside 500 to 2,000 MAD, the range in Law 19.25
+  const fine = lo + Math.floor(rnd() * ((hi - lo) / 100 + 1)) * 100;
+  streak = 0;
   wallet -= fine; finesPaid += fine;
   caught = { fine, t: 2.6, w, reason };
   state = "caught";
@@ -677,7 +842,10 @@ function bust(w, reason) {
 }
 function gameOver(reason) {
   overReason = reason; state = "over";
-  if (fed > best) { best = fed; try { localStorage.setItem("feed-or-dont-best", String(best)); } catch (e) { /* ignore */ } }
+  const isHigh = qualifies(score);
+  $("nameForm").classList.toggle("show", isHigh);
+  renderBoard($("boardOver"), -1);
+  setTimeout(() => { if (isHigh) { $("nameInput").value = lastName; $("nameInput").focus(); } else $("againBtn").focus(); }, 60);
 }
 function crash(what) { sfx.crash(); gameOver(`You walked into ${what}`); }
 
@@ -721,7 +889,7 @@ function update(dt) {
     const dz = it.z - p.z, dx = Math.abs(it.x - p.x);
     if (it.type === "cat") {
       it.heartT = Math.max(0, it.heartT - dt); it.eatT = Math.max(0, it.eatT - dt);
-      if (!it.fed && !it.missed && dz < -1) { it.missed = true; missed++; }
+      if (!it.fed && !it.missed && dz < -1) { it.missed = true; missed++; streak = 0; }
       continue;
     }
     if (dx > 1.0 || Math.abs(dz) > 1.3) continue;
@@ -742,17 +910,23 @@ function update(dt) {
   }
   if (feedPressed && p.target) {
     const c = p.target;
-    c.fed = true; c.heartT = 1.4; c.eatT = 6; fed++;
+    c.fed = true; c.heartT = 1.4; c.eatT = 6; fed++; streak++;
+    const pts = (100 + Math.min(streak - 1, 10) * 20) * L().mult;
+    feedPoints += pts;
+    toast(streak > 1 ? `+${pts}   streak x${streak}` : `+${pts}`);
     c.heart = new THREE.Sprite(heartMat.clone()); c.heart.renderOrder = 10; c.heart.userData.dispose = [c.heart.material]; scene.add(c.heart);
     toss = { from: [p.x + 0.5, p.y + 1.4, p.z], cat: c, t: 0 };
     sfx.toss(); sfx.fed();
     if (rnd() < 0.5) sfx.meow();
     const w = p.grace === 0 && watchers.find(sees);
-    if (w) { bust(w, "You were seen feeding a stray cat in public."); feedPressed = false; return; }
+    if (w) { bust(w, w.kind === "camera" ? "A security camera filmed you feeding a stray cat." : "An officer saw you feeding a stray cat in public."); feedPressed = false; return; }
   }
   feedPressed = false;
   if (toss && (toss.t += dt * 3) >= 1) toss = null;
   seenNow = p.grace === 0 && watchers.some(sees);
+  score = feedPoints + Math.floor(p.z / 2) * L().mult;
+  const t = titleFor(score);
+  if (t !== currentTitle) { currentTitle = t; toast(`New title: ${t}`, 2200); sfx.title(); }
 }
 
 // ---------- per-frame scene sync ----------
@@ -766,16 +940,20 @@ function sync(dt) {
   const moving = p.speed > 0.2;
   animatePerson(m, p.runT * 1.7, p.y > 0.05 ? 0.25 : moving ? 0.75 * Math.min(1, p.speed / MAX_SPEED) : 0);
   if (toss) m.arms[1].rotation.x = -2.4 * (1 - toss.t);
+  m.head.rotation.y += ((moving ? 0 : Math.sin(time * 0.6) * 0.35) - m.head.rotation.y) * k;
   m.root.visible = camBlend < 0.5;
 
   for (const it of items) {
     if (it.type === "cat") {
-      const c = it.model;
+      const c = it.model, eating = it.eatT > 0, focus = it === p.target;
       c.bowl.visible = it.fed;
-      c.food.visible = it.eatT > 0;
-      c.head.rotation.x = it.eatT > 0 ? 0.55 + Math.sin(time * 12) * 0.12 : Math.sin(time * 1.5 + it.seed) * 0.08;
-      c.head.rotation.y = it.eatT > 0 ? 0.5 : Math.sin(time * 0.8 + it.seed) * 0.35;
-      c.tail.rotation.z = Math.sin(time * 3 + it.seed) * 0.25;
+      c.food.visible = eating;
+      c.head.rotation.x = eating ? 0.55 + Math.sin(time * 12) * 0.12 : focus ? -0.3 : Math.sin(time * 1.5 + it.seed) * 0.08;
+      c.head.rotation.y = eating ? 0.5 : focus ? 0 : Math.sin(time * 0.8 + it.seed) * 0.35;
+      c.tail.rotation.x += ((it.fed ? -0.15 : -0.9) - c.tail.rotation.x) * k;
+      c.tail.rotation.z = Math.sin(time * (it.fed ? 9 : 3) + it.seed) * 0.3;
+      c.body.scale.y = 1 + Math.sin(time * 3 + it.seed) * 0.02;
+      it.mesh.position.y = it.heartT > 1 ? Math.sin(((1.4 - it.heartT) / 0.4) * Math.PI) * 0.25 : 0; // happy hop
       if (it.heart) {
         it.heart.visible = it.heartT > 0;
         at(it.heart, it.x, 1.4 + (1.4 - it.heartT) * 1.2, it.z);
@@ -796,6 +974,14 @@ function sync(dt) {
       parts.cop.position.z += ((w.state === "watch" ? 0.12 : -0.6) - parts.cop.position.z) * k;
       parts.cop.visible = parts.cop.position.z > -0.5;
       at(w.bang, w.side * 5.3, w.y + 1.7, w.z);
+    } else if (w.kind === "camera") {
+      // Sweeps along the wall while idle, swivels toward the street while warning, films while watching.
+      const toStreet = w.side < 0 ? Math.PI / 2 : -Math.PI / 2;
+      const yaw = w.state === "watch" ? toStreet : w.state === "warn" ? (toStreet + Math.PI) / 2 : Math.PI + Math.sin(time * 0.6 + w.z) * 0.35;
+      w.cam.head.rotation.y = lerpAngle(w.cam.head.rotation.y, yaw, k * 0.6);
+      w.cam.head.rotation.x += ((w.state === "watch" ? 0.45 : 0.15) - w.cam.head.rotation.x) * k;
+      w.cam.led.material.emissive.set(w.state === "watch" || blink ? "#ff2a2a" : "#000000");
+      at(w.bang, w.side * 5.3, w.y + 0.9, w.z);
     } else {
       at(w.mesh, w.x, 0, w.z);
       at(w.bang, w.x, 3.0, w.z);
@@ -803,6 +989,9 @@ function sync(dt) {
       const away = w.kind === "walker" ? Math.PI : w.kind === "crosser" ? (w.dir > 0 ? Math.PI / 2 : -Math.PI / 2) : (w.side < 0 ? Math.PI / 2 : -Math.PI / 2);
       w.face = lerpAngle(w.face, w.state === "watch" ? 0 : away, k);
       w.mesh.rotation.y = w.face;
+      // The head turns toward you during the warning, before the body follows.
+      const look = w.state === "warn" ? clamp(-w.face, -2.4, 2.4) : w.state === "watch" ? 0 : Math.sin(time * 0.7 + w.z) * 0.4;
+      w.model.head.rotation.y += (look - w.model.head.rotation.y) * k;
       const walking = (w.kind === "walker" && w.state === "hidden") || (w.kind === "crosser" && w.state !== "watch");
       animatePerson(w.model, w.walkT, walking ? 0.6 : 0);
       w.mesh.visible = !(w.kind === "alley" && w.state === "hidden");
@@ -840,17 +1029,116 @@ function sync(dt) {
 // ---------- DOM UI ----------
 const $ = id => document.getElementById(id);
 const fmt = n => Math.round(n).toLocaleString("en-US");
-const cards = { title: $("titleCard"), paused: $("pauseCard"), caught: $("caughtCard"), over: $("overCard") };
-let shownCard = "title";
+const cards = { intro: $("introCard"), title: $("titleCard"), paused: $("pauseCard"), caught: $("caughtCard"), over: $("overCard") };
+let shownCard = "intro";
+
+// ---------- intro: what Law 19.25 is about (sources: Hespress, Le360, Gulf News, 2025-2026) ----------
+const SLIDES = [
+  { step: "Morocco, 2026", h: "A new law on street animals",
+    p: "In July 2026 Morocco adopted Law 19.25, its first nationwide law on stray dogs and cats. It sets up licensed care centres and new rules for everyone else." },
+  { step: "What it says", h: "Feeding strays in public can cost you",
+    p: "No one may feed, shelter or treat a stray animal except as the law and its regulations allow. Doing it in streets, shared buildings or other public places carries a fine of 500 to 2,000 MAD." },
+  { step: "Why it is debated", h: "Two sides",
+    p: "The government says care should go through licensed centres to control breeding, track animal health and fight rabies. Animal welfare groups such as the SPA du Maroc fear it will stop people helping abandoned animals, and some of the facilities the law relies on are not set up yet." },
+  { step: "Your turn", h: "Feed or don't?",
+    p: "You are a neighbour with a bag of cat food. Walk the medina, feed the cats, and stay out of sight of the police and the cameras. This game is satire, not legal advice." },
+];
+let slide = 0;
+function renderSlide() {
+  const s = SLIDES[slide];
+  $("introStep").textContent = `${slide + 1} of ${SLIDES.length}: ${s.step}`;
+  $("introH").textContent = s.h;
+  $("introBody").textContent = s.p;
+  $("introDots").replaceChildren(...SLIDES.map((_, i) => { const d = document.createElement("span"); if (i === slide) d.className = "on"; return d; }));
+  $("introNext").textContent = slide === SLIDES.length - 1 ? "Choose difficulty" : "Next";
+}
+function endIntro() { state = "title"; setTimeout(() => $("startBtn").focus(), 30); }
+function nextSlide(dir = 1) {
+  if (slide + dir >= SLIDES.length) { endIntro(); return; }
+  slide = Math.max(0, slide + dir);
+  renderSlide();
+}
+$("introNext").addEventListener("click", () => nextSlide(1));
+$("introSkip").addEventListener("click", endIntro);
+$("aboutBtn").addEventListener("click", () => { slide = 0; renderSlide(); state = "intro"; setTimeout(() => $("introNext").focus(), 30); });
+renderSlide();
 function showCard(name) {
   if (shownCard === name) return;
   Object.entries(cards).forEach(([k, el]) => el.classList.toggle("show", k === name));
   shownCard = name;
-  if (name === "over") $("againBtn").focus();
 }
+let toastTimer = 0;
+function toast(msg, ms = 1300) {
+  const el = $("toast");
+  el.textContent = msg; el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), ms);
+}
+
+// ---------- leaderboard (top 10, stored in this browser) ----------
+const BOARD_KEY = "feed-or-dont-board-v1";
+let lastName = "";
+try { lastName = localStorage.getItem("feed-or-dont-name") || ""; } catch (e) { /* storage blocked */ }
+const cleanName = v => String(v).replace(/[\u0000-\u001f\u007f<>]/g, "").trim().slice(0, 16) || "Anonymous";
+function loadBoard() {
+  try {
+    const v = JSON.parse(localStorage.getItem(BOARD_KEY) || "[]");
+    if (!Array.isArray(v)) return [];
+    return v.filter(e => e && typeof e.name === "string" && Number.isFinite(e.score)).slice(0, 10);
+  } catch (e) { return []; }
+}
+const qualifies = pts => { const b = loadBoard(); return pts > 0 && (b.length < 10 || pts > b[b.length - 1].score); };
+function addScore(entry) {
+  const b = loadBoard();
+  b.push(entry);
+  b.sort((x, y) => y.score - x.score);
+  const top = b.slice(0, 10);
+  try { localStorage.setItem(BOARD_KEY, JSON.stringify(top)); } catch (e) { console.warn("Leaderboard not saved:", e); }
+  return top.indexOf(entry);
+}
+function renderBoard(ol, highlight) {
+  const b = loadBoard();
+  if (!b.length) {
+    const li = document.createElement("li");
+    li.className = "empty"; li.textContent = "No scores yet. Be the first Saver of Cats.";
+    ol.replaceChildren(li);
+    return;
+  }
+  const cell = (cls, txt) => { const s = document.createElement("span"); s.className = cls; s.textContent = txt; return s; };
+  ol.replaceChildren(...b.map((e, i) => {
+    const li = document.createElement("li");
+    if (i === highlight) li.className = "me";
+    const lvl = LEVELS[e.level] ? LEVELS[e.level].label : "";
+    li.append(cell("r", String(i + 1)), cell("n", cleanName(e.name)), cell("s", fmt(e.score)),
+      cell("t", `${e.title || ""}, ${e.fed | 0} cats, ${lvl}`));
+    return li;
+  }));
+}
+function setLevel(v) {
+  if (!(v in LEVELS)) return;
+  level = v;
+  document.querySelectorAll(".lvl").forEach(b => b.setAttribute("aria-checked", String(b.dataset.level === v)));
+  try { localStorage.setItem("feed-or-dont-level", v); } catch (e) { /* storage blocked */ }
+}
+document.querySelectorAll(".lvl").forEach(b => b.addEventListener("click", () => setLevel(b.dataset.level)));
+setLevel(level);
+renderBoard($("boardTitle"), -1);
+$("nameForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const name = cleanName($("nameInput").value);
+  lastName = name;
+  try { localStorage.setItem("feed-or-dont-name", name); } catch (err) { /* storage blocked */ }
+  const idx = addScore({ name, score, fed, level, title: currentTitle, date: new Date().toISOString().slice(0, 10) });
+  renderBoard($("boardOver"), idx);
+  renderBoard($("boardTitle"), -1);
+  $("nameForm").classList.remove("show");
+  $("againBtn").focus();
+});
 const uiCache = {};
 function setText(id, v) { if (uiCache[id] !== v) { uiCache[id] = v; $(id).textContent = v; } }
 function updateUI() {
+  setText("score", fmt(score));
+  setText("rank", currentTitle);
   setText("fed", String(fed));
   setText("wallet", `${fmt(Math.max(0, wallet))} MAD`);
   $("walletPill").classList.toggle("low", wallet < 2000);
@@ -864,13 +1152,13 @@ function updateUI() {
   }
   if (state === "over") {
     setText("overWhy", overReason);
+    setText("sScore", `${fmt(score)} points`);
+    setText("sTitle", `${currentTitle}, ${L().label} (${L().mult}x points)`);
     setText("sFed", String(fed)); setText("sMissed", String(missed));
     setText("sDist", `${fmt(player.z)} m`); setText("sFines", `${fmt(finesPaid)} MAD`);
   }
   showCard(state === "play" ? null : state);
 }
-function refreshBest() { $("bestLine").textContent = best ? `Your best: ${best} cat${best === 1 ? "" : "s"} fed` : ""; }
-refreshBest();
 
 // ---------- input ----------
 const held = { up: false };
@@ -880,11 +1168,23 @@ $("startBtn").addEventListener("click", start);
 $("againBtn").addEventListener("click", start);
 addEventListener("keyup", e => { if (isUp(e.key.toLowerCase())) held.up = false; });
 addEventListener("keydown", e => {
+  if (e.target instanceof HTMLInputElement) return; // typing a leaderboard name
   if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(e.key)) e.preventDefault();
   audio();
   const k = e.key.toLowerCase(), p = player;
+  if (state === "intro") {
+    if (e.repeat) return;
+    if (k === "enter" || k === "arrowright" || k === " ") { e.preventDefault(); nextSlide(1); }
+    else if (k === "arrowleft") nextSlide(-1);
+    else if (k === "escape") endIntro();
+    return;
+  }
   if (isUp(k)) held.up = true;
   if (e.repeat) return;
+  if (state === "title" || state === "over") {
+    if (k === "1" || k === "2" || k === "3") { setLevel(["easy", "normal", "hard"][+k - 1]); return; }
+    if (k === "enter" && $("nameForm").classList.contains("show")) { e.preventDefault(); $("nameInput").focus(); return; }
+  }
   if (k === "enter" && (state === "title" || state === "over")) { e.preventDefault(); start(); return; }
   if ((k === "p" || k === "escape") && (state === "play" || state === "paused")) { state = state === "play" ? "paused" : "play"; return; }
   if (k === "m") { muted = !muted; return; }
@@ -908,7 +1208,6 @@ function frame(now) {
     player.grace = 1.5;
     if (wallet <= 0) gameOver("Your wallet is empty"); else state = "play";
   }
-  if (state === "over") refreshBest();
   sync(dt);
   updateUI();
   renderer.render(scene, camera);

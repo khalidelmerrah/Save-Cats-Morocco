@@ -16,7 +16,11 @@ Open `feed-or-dont.html` in a browser. It is a single file with Three.js inlined
 | P | Pause |
 | M | Sound on / off |
 
-Police watch from windows and alleys, walk down the street and cross it. A yellow `!` warns you before they look; a yellow cone on the ground shows exactly what they can see.
+The game opens with a short intro on what Law 19.25 says and why it is debated. Pick Easy, Normal or Hard (keys 1 to 3); harder levels have more watchers and multiply your points.
+
+Police watch from windows and alleys, walk down the street and cross it, and security cameras film it. A yellow `!` warns you before they look; a red cone on the ground shows exactly what they can see.
+
+Feeding cats earns points, with a bonus for streaks. Your score earns titles from Passer-by up to Saver of Cats and Legend of the Strays, and the top 10 scores are kept on this device's leaderboard.
 
 ## Files
 

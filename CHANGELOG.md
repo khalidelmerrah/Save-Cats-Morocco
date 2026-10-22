@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0] - 2026-10-22
+### Added
+- Intro slides explaining Law 19.25 (what it says, why it is debated, your turn); skippable, replayable via "About the law".
+- Difficulty levels Easy / Normal / Hard (watcher density, how often they look, warning length, fine range, 1x/2x/3x points).
+- Security cameras on walls: sweep, swivel to the street, red recording light.
+- Points (cat fed, streak bonus, distance), live rank titles from Passer-by to Saver of Cats and Legend of the Strays.
+- Local top-10 leaderboard with name entry (names sanitized, rendered as text).
+- More cats, sometimes two per row.
+### Changed
+- Police density on Normal roughly halved; sight cones are now red.
+- Characters: faces (eyes, brows, smile, cheeks), hoodie with hood and pocket, sneakers, police uniform with peaked cap, epaulettes, buttons, belt and holster; cats with inner ears, whiskers, stripes, white chests.
+- Animation: torso twist and breathing, police turn their head before looking, cats look at you, hop and raise their tail when fed.
+
 ## [0.4.0] - 2026-10-22 (commit: c692238)
 ### Changed
 - `feed-or-dont.html` rebuilt on Three.js r149 (inlined, still one offline file): smooth cartoon models with animated limbs, cats with ears and tails, swinging shutters, arched doors, zellige bands, striped awnings, soft shadows, clouds and a distant minaret.
