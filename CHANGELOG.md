@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.5.0] - 2026-10-22
+## [0.5.0] - 2026-10-22 (commit: 056045b)
 ### Added
 - Intro slides explaining Law 19.25 (what it says, why it is debated, your turn); skippable, replayable via "About the law".
 - Difficulty levels Easy / Normal / Hard (watcher density, how often they look, warning length, fine range, 1x/2x/3x points).
