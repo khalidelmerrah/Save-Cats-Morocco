@@ -117,6 +117,18 @@
     .big-score { font-size: 40px; }
     #toast { font-size: 18px; top: 116px; }
   }
+  /* ---------- emotion ---------- */
+  canvas { transition: filter 0.8s; }
+  body.sad canvas { filter: saturate(0.25) brightness(0.85); }
+  #warm { position: fixed; inset: 0; background: rgba(255, 196, 110, 0); pointer-events: none; transition: background 0.6s; }
+  #warm.on { background: rgba(255, 196, 110, 0.3); transition: background 0.15s; }
+  #caption { position: fixed; left: 50%; top: 26%; transform: translateX(-50%); width: min(92%, 760px); text-align: center; font-size: 36px; font-weight: 900; line-height: 1.2; color: #fff4c2; text-shadow: 0 3px 0 rgba(42, 29, 22, 0.65), 0 0 18px rgba(0, 0, 0, 0.35); opacity: 0; transition: opacity 0.5s; pointer-events: none; }
+  #caption.show { opacity: 1; }
+  #caption.sad { color: #e3e9f3; }
+  #caughtCard { align-items: flex-end; background: transparent; }
+  #caughtCard .card { width: min(560px, 100%); padding: 22px 28px; }
+  #caughtCard button { margin-top: 14px; }
+  @media (max-width: 700px) { #caption { font-size: 24px; top: 22%; } }
 </style>
 </head>
 <body>
@@ -126,6 +138,8 @@
   <div class="pill"><span>Cats fed</span><b id="fed">0</b><span class="sep">Walked</span><b id="dist">0 m</b></div>
 </div>
 <div id="toast" role="status"></div>
+<div id="warm" aria-hidden="true"></div>
+<div id="caption" role="status"></div>
 <div id="banner" role="status">They're watching you</div>
 <div id="hint">Hold &uarr; to walk</div>
 <div id="camtip" class="pill"><kbd>C</kbd> First person</div>
@@ -174,7 +188,7 @@
   <div class="card" role="dialog"><h2>Paused</h2><p class="key-only">Press <kbd>P</kbd> to keep walking.</p><button id="resumeBtn">Keep walking</button></div>
 </div>
 <div class="overlay" id="caughtCard">
-  <div class="card" role="alertdialog"><h2>Caught!</h2><div class="fine" id="fineAmt"></div><p id="fineWhy"></p><p class="law">Law 19.25: feeding stray animals in public</p></div>
+  <div class="card" role="alertdialog"><h2>Caught!</h2><div class="fine" id="fineAmt"></div><p id="fineWhy"></p><p class="law">Law 19.25: feeding stray animals in public</p><button id="caughtBtn">Keep walking</button></div>
 </div>
 <div class="overlay" id="overCard">
   <div class="card wide" role="dialog">
@@ -212,6 +226,7 @@
 // Units are metres. Game logic uses z = distance walked; Three.js uses -z as forward, see at().
 const LANES = [-2.6, 0, 2.6], STREET = 4.2, FACE = 6, VIEW = 110, CHUNK = 20;
 const START_WALLET = 6000;
+const FEED_GAP = 1.75; // how far in front of the cat you kneel (m)
 const MAX_SPEED = 6.5, ACCEL = 9, BRAKE = 14; // you only move while holding UP (or a thumb, or tilting)
 const TOUCH = matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
 
@@ -221,6 +236,10 @@ const SHUTTERS = ["#18a06a", "#2f5fd0", "#d63a3a"];
 // [coat, eyes, stripes or null, white chest]
 const COATS = [["#f08a24", "#3a8f3a", "#c4621a", true], ["#f4f1ea", "#2f5fd0", null, false], ["#2b2b2b", "#e0c02a", null, true],
   ["#9a9a9a", "#3a8f3a", "#6a6a6a", false], ["#c8763a", "#3a8f3a", "#8f4f22", true]];
+const CAT_NAMES = ["Mimi", "Zitouna", "Simsim", "Nounou", "Kahwa", "Bichou", "Loulou", "Tigro", "Lalla", "Sukkar"];
+const HAPPY_LINES = ["{name} finally eats today.", "{name} purrs. You made a friend.", "A full belly for {name}.", "{name} will remember you."];
+const SAD_CAT_LINES = ["{name} runs away hungry.", "{name} watches the bowl go. No dinner tonight."];
+const SAD_LINES = ["You pay the fine. The cats wait for someone kinder.", "The fine is paid. Somewhere, a cat is still hungry."];
 const FLAGS = ["#d63a3a", "#f2a922", "#18a06a", "#2f5fd0", "#f3e7d3"];
 const PAL = {
   sky: "#7cc6f2", haze: "#cfe8f5", trim: "#fff4e0", dark: "#2a1a14", alley: "#5a3a2e", walk: "#ecd2a8", curb: "#c58f5c",
@@ -408,18 +427,43 @@ function mergeStatic(group, keep = new Set()) {
 }
 
 // ---------- models ----------
-function makeFace(face, moustache = false) {
+// Expressive faces (the player) get a grin, a frown and a tear that setMood() switches between.
+function makeFace(face, { moustache = false, expressive = false } = {}) {
   part(GEO.sphere, PAL.skin, face, 0, 0, 0, 0.28, 0.3, 0.28);
-  [-1, 1].forEach(s => {
+  const brows = [-1, 1].map(s => {
     part(GEO.sphere, PAL.skin, face, s * 0.27, 0, 0, 0.06, 0.09, 0.05);
     part(GEO.sphere, "#ffffff", face, s * 0.1, 0.04, 0.235, 0.065, 0.075, 0.04);
     part(GEO.sphere, "#1d1410", face, s * 0.1, 0.035, 0.268, 0.034, 0.045, 0.015);
-    part(GEO.box, PAL.hair, face, s * 0.1, 0.135, 0.255, 0.11, 0.025, 0.02).rotation.z = s * -0.15;
     part(GEO.sphere, "#e58a7a", face, s * 0.17, -0.08, 0.215, 0.05, 0.035, 0.02);
+    const b = part(GEO.box, PAL.hair, face, s * 0.1, 0.135, 0.255, 0.11, 0.025, 0.02);
+    b.rotation.z = s * 0.1;
+    return b;
   });
   part(GEO.sphere, PAL.skinDark, face, 0, -0.02, 0.275, 0.045, 0.05, 0.04);
-  part(torus(0.07, 0.016, Math.PI), "#8a2a2a", face, 0, -0.07, 0.255).rotation.z = Math.PI;
+  const smile = part(torus(0.07, 0.016, Math.PI), "#8a2a2a", face, 0, -0.07, 0.255);
+  smile.rotation.z = Math.PI;
   if (moustache) part(GEO.box, PAL.hair, face, 0, -0.07, 0.272, 0.17, 0.035, 0.03);
+  if (!expressive) return null;
+  const grin = new THREE.Group(); face.add(grin);
+  part(GEO.sphere, "#6a1f1f", grin, 0, -0.1, 0.245, 0.1, 0.065, 0.035);
+  part(GEO.box, "#ffffff", grin, 0, -0.065, 0.27, 0.13, 0.025, 0.012);
+  const frown = part(torus(0.06, 0.016, Math.PI), "#8a2a2a", face, 0, -0.135, 0.255);
+  const tear = part(GEO.sphere, "#7fc8ff", face, 0.12, -0.03, 0.27, 0.03, 0.045, 0.02);
+  grin.visible = frown.visible = tear.visible = false;
+  return { brows, smile, grin, frown, tear, mood: "calm" };
+}
+function setMood(m, mood) {
+  const e = m.expr;
+  if (!e || e.mood === mood) return;
+  e.mood = mood;
+  e.smile.visible = mood === "calm";
+  e.grin.visible = mood === "happy";
+  e.frown.visible = e.tear.visible = mood === "sad";
+  e.brows.forEach((b, i) => {
+    const sgn = i ? 1 : -1;
+    b.rotation.z = mood === "sad" ? -sgn * 0.38 : mood === "happy" ? sgn * 0.05 : sgn * 0.1;
+    b.position.y = mood === "happy" ? 0.155 : 0.135;
+  });
 }
 function addCopCap(face) {
   part(GEO.capCrown, PAL.copNavy, face, 0, 0.27, -0.01, 1, 0.18, 1);
@@ -463,7 +507,7 @@ function makePerson(kind) {
   });
   const head = new THREE.Group(); head.position.set(0, 1.8, 0); body.add(head);
   const face = new THREE.Group(); face.position.y = 0.2; head.add(face);
-  makeFace(face, cop && rnd() < 0.5);
+  const expr = makeFace(face, { moustache: cop && rnd() < 0.5, expressive: !cop });
   if (cop) addCopCap(face);
   else {
     part(GEO.sphere, PAL.hair, face, 0, 0.1, -0.08, 0.3, 0.22, 0.27);
@@ -471,8 +515,8 @@ function makePerson(kind) {
   }
   castAll(root);
   [...legs, ...arms].forEach(pv => mergeStatic(pv));
-  mergeStatic(head);
-  return { root, body, legs, arms, head, keep: new Set([...legs, ...arms, head]) };
+  mergeStatic(head, expr ? new Set([...expr.brows, expr.smile, expr.grin, expr.frown, expr.tear]) : new Set());
+  return { root, body, legs, arms, head, expr, keep: new Set([...legs, ...arms, head]) };
 }
 function animatePerson(m, phase, amount) {
   const s = Math.sin(phase) * amount;
@@ -515,7 +559,7 @@ function makeCat([coat, eye, stripe, chest]) {
   const tail = new THREE.Group(); tail.position.set(0, 0.12, -0.33); tail.rotation.x = -0.9; body.add(tail);
   part(capsule(0.045, 0.45), coat, tail, 0, 0.27, 0);
   if (stripe) [0.2, 0.36].forEach(y => { part(torus(0.05, 0.015, Math.PI * 2), stripe, tail, 0, y, 0).rotation.x = Math.PI / 2; });
-  const bowl = new THREE.Group(); bowl.position.set(0.55, 0, 0.15); bowl.visible = false; root.add(bowl);
+  const bowl = new THREE.Group(); bowl.position.set(0, 0, 0.5); bowl.visible = false; root.add(bowl);
   part(GEO.bowl, PAL.bowl, bowl, 0, 0.06, 0);
   const food = part(GEO.sphere, PAL.orange, bowl, 0, 0.12, 0, 0.18, 0.04, 0.18);
   castAll(root);
@@ -551,7 +595,7 @@ function makeWindowCop() {
   [-1, 1].forEach(s => part(GEO.box, PAL.gold, g, s * 0.3, -0.36, 0, 0.16, 0.04, 0.2));
   part(GEO.cyl, PAL.copShirt, g, 0, -0.3, 0, 0.17, 0.08, 0.15);
   const face = new THREE.Group(); face.position.y = -0.02; g.add(face);
-  makeFace(face, rnd() < 0.5);
+  makeFace(face, { moustache: rnd() < 0.5 });
   addCopCap(face);
   return mergeStatic(g);
 }
@@ -696,16 +740,32 @@ const sfx = {
   jump: () => tone(300, 0.18, { type: "triangle", vol: 0.06, slide: 700 }),
   toss: () => tone(900, 0.08, { type: "triangle", vol: 0.05, slide: 500 }),
   meow: () => { tone(620, 0.08, { type: "triangle", vol: 0.05, slide: 820 }); tone(820, 0.22, { type: "triangle", vol: 0.05, slide: 480, at: 0.08 }); },
-  fed: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.1, { type: "triangle", vol: 0.05, at: 0.1 + i * 0.07 })),
-  warn: () => { tone(180, 0.07, { vol: 0.04 }); tone(150, 0.09, { vol: 0.04, at: 0.1 }); },
-  whistle: () => {
-    for (let i = 0; i < 10; i++) tone(i % 2 ? 2350 : 2100, 0.06, { vol: 0.03, at: i * 0.06 });
-    [440, 392, 330, 262].forEach((f, i) => tone(f, 0.14, { type: "triangle", vol: 0.06, at: 0.75 + i * 0.12 }));
+  bowl: () => { tone(1200, 0.05, { type: "triangle", vol: 0.04 }); tone(900, 0.08, { type: "triangle", vol: 0.04, at: 0.06 }); },
+  crunch: () => hiss(0.05, 0.05, 0, 2200),
+  happy: () => {
+    [523, 659, 784, 1047, 1319].forEach((f, i) => tone(f, 0.2, { type: "triangle", vol: 0.055, at: i * 0.08 }));
+    [1568, 2093].forEach((f, i) => tone(f, 0.35, { type: "sine", vol: 0.03, at: 0.45 + i * 0.1 }));
   },
+  sad: () => {
+    [440, 392, 349, 294].forEach((f, i) => tone(f, 0.6, { type: "triangle", vol: 0.06, at: i * 0.5 }));
+    tone(73.4, 2.4, { type: "sine", vol: 0.07 });
+  },
+  warn: () => { tone(180, 0.07, { vol: 0.04 }); tone(150, 0.09, { vol: 0.04, at: 0.1 }); },
+  whistle: () => { for (let i = 0; i < 10; i++) tone(i % 2 ? 2350 : 2100, 0.06, { vol: 0.03, at: i * 0.06 }); },
   crash: () => { hiss(0.4, 0.08, 0, 200); tone(120, 0.5, { vol: 0.06, slide: 50 }); },
   start: () => [294, 370, 440, 587].forEach((f, i) => tone(f, 0.1, { type: "triangle", vol: 0.06, at: i * 0.08 })),
   title: () => [392, 494, 587, 784, 988].forEach((f, i) => tone(f, 0.14, { type: "triangle", vol: 0.06, at: i * 0.09 })),
 };
+// A cat purr: low rumble pulsing about 24 times a second.
+function purr(dur) {
+  if (!ac || muted) return;
+  const t = ac.currentTime, s = ac.createBufferSource(), f = ac.createBiquadFilter(), g = ac.createGain(), lfo = ac.createOscillator(), depth = ac.createGain();
+  s.buffer = noiseBuf; s.loop = true; f.type = "lowpass"; f.frequency.value = 180;
+  g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.09, t + 0.3); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+  lfo.frequency.value = 24; depth.gain.value = 0.06; lfo.connect(depth).connect(g.gain);
+  s.connect(f).connect(g).connect(master);
+  s.start(t); s.stop(t + dur); lfo.start(t); lfo.stop(t + dur);
+}
 // Background loop in a Hijaz-flavoured scale (D Eb F# G A Bb C).
 const MELODY = [294, 370, 392, 440, 392, 370, 311, 294, 440, 466, 440, 392, 370, 392, 370, 0];
 let nextNote = 0, noteStep = 0;
@@ -824,7 +884,7 @@ function spawnRow(z) {
     }
   }
   const spawnCat = lane => {
-    const cat = { type: "cat", x: LANES[lane], z, fed: false, missed: false, heartT: 0, eatT: 0, seed: rnd() * 10 };
+    const cat = { type: "cat", name: pick(CAT_NAMES), x: LANES[lane], z, fed: false, missed: false, heartT: 0, eatT: 0, seed: rnd() * 10 };
     cat.model = makeCat(pick(COATS));
     addItem(cat, cat.model.root);
   };
@@ -842,14 +902,12 @@ function spawnRow(z) {
 }
 
 // ---------- game state ----------
-let state = "intro", player, wallet, fed, missed, finesPaid, caught, overReason = "", toss = null;
+let state = "intro", player, wallet, fed, missed, finesPaid, caught = null, overReason = "", particles = [];
 let seenNow = false, time = 0, feedPressed = false, camMode = 0, camBlend = 0;
 let score = 0, feedPoints = 0, streak = 0, currentTitle = "";
 const TITLES = [[0, "Passer-by"], [400, "Cat Friend"], [1200, "Street Feeder"], [2500, "Medina Guardian"], [5000, "Saver of Cats"], [9000, "Legend of the Strays"]];
 const titleFor = pts => TITLES.filter(([min]) => pts >= min).pop()[1];
 
-const tossBall = part(GEO.sphere, PAL.orange, scene, 0, 0, 0, 0.13, 0.13, 0.13);
-tossBall.visible = false;
 const prompt = new THREE.Sprite(new THREE.SpriteMaterial({ map: TEX.prompt, depthTest: false }));
 prompt.scale.set(1.5, 0.56, 1); prompt.renderOrder = 10; prompt.visible = false;
 scene.add(prompt);
@@ -858,11 +916,15 @@ const heartMat = new THREE.SpriteMaterial({ map: TEX.heart, depthTest: false, tr
 function reset() {
   segs.forEach(s => drop(s.mesh)); items.forEach(it => drop(it.mesh)); watchers.forEach(dropWatcher); chunks.forEach(c => drop(c.mesh));
   items.forEach(it => it.heart && drop(it.heart));
+  particles.forEach(q => drop(q.s)); particles = [];
+  if (caught && caught.cop) drop(caught.cop.m.root);
+  document.body.classList.remove("sad");
   segs = []; items = []; watchers = []; chunks = [];
   genZ = { "-1": -10, "1": -10 }; rowZ = 22; nextChunk = -1;
   if (!player) player = { model: makePlayer() };
-  Object.assign(player, { lane: 1, x: 0, y: 0, vy: 0, z: 0, speed: 0, runT: 0, grace: 0, target: null });
-  wallet = START_WALLET; fed = 0; missed = 0; finesPaid = 0; caught = null; toss = null; seenNow = false;
+  Object.assign(player, { lane: 1, x: 0, y: 0, vy: 0, z: 0, speed: 0, runT: 0, grace: 0, target: null, feed: null, kneel: 0, happyT: 0, cheerT: 0, sadT: 0 });
+  setMood(player.model, "calm");
+  wallet = START_WALLET; fed = 0; missed = 0; finesPaid = 0; caught = null; seenNow = false;
   score = 0; feedPoints = 0; streak = 0; currentTitle = titleFor(0);
   generate(VIEW + 10);
 }
@@ -883,11 +945,73 @@ function sees(w) {
 function bust(w, reason) {
   const [lo, hi] = L().fines; // always inside 500 to 2,000 MAD, the range in Law 19.25
   const fine = lo + Math.floor(rnd() * ((hi - lo) / 100 + 1)) * 100;
+  const p = player;
+  let cat = null;
+  if (p.feed) { cat = p.feed.cat; cat.flee = 0; cat.bowlOut = false; cat.eatT = 0; p.feed = null; }
   streak = 0;
   wallet -= fine; finesPaid += fine;
-  caught = { fine, t: 2.6, w, reason };
+  p.speed = 0;
+  const line = cat ? pick(SAD_CAT_LINES).replace("{name}", cat.name) : pick(SAD_LINES);
+  caught = { fine, t: 0, w, reason, cat, line, lineShown: false, cop: spawnOfficer(w) };
   state = "caught";
+  document.body.classList.add("sad");
   sfx.whistle();
+  setTimeout(() => { if (state === "caught") sfx.sad(); }, 900);
+}
+function spawnOfficer(w) {
+  const p = player, m = makePerson("cop");
+  const pad = castAll(part(GEO.box, "#ffffff", m.arms[1], 0, -0.72, 0.12, 0.22, 0.3, 0.03));
+  pad.visible = false;
+  mergeStatic(m.body, m.keep);
+  scene.add(m.root);
+  const side = p.lane === 2 ? -1 : 1;
+  const near = w && w.type === "cop" && Math.hypot(w.x - p.x, w.z - p.z) < 7;
+  if (w && w.type === "cop") { w.gone = true; if (w.mesh) w.mesh.visible = false; }
+  return { m, pad, x: near ? w.x : p.x + side * 1.2, z: near ? w.z : p.z + 5.5, tx: p.x + side * 0.9, tz: p.z + 1.4, walkT: 0, face: 0, writing: false };
+}
+function updateCaught(dt) {
+  const c = caught, o = c.cop;
+  c.t += dt;
+  const dx = o.tx - o.x, dz = o.tz - o.z, d = Math.hypot(dx, dz);
+  if (d > 0.05) {
+    const step = Math.min(d, 2.6 * dt);
+    o.x += dx / d * step; o.z += dz / d * step; o.walkT += dt * 8;
+    o.face = Math.atan2(dx, -dz);
+  } else { o.face = 0; o.writing = true; }
+  if (c.t > 2.4 && !c.lineShown) { c.lineShown = true; caption(c.line, "sad", 3200); }
+  if (c.t > 7.5) endCaught();
+}
+function endCaught() {
+  const c = caught;
+  if (!c || state !== "caught" || c.t < 2.4) return;
+  drop(c.cop.m.root); c.cop = null;
+  c.w.state = "hidden"; c.w.t = hiddenTime() + 1.5;
+  document.body.classList.remove("sad");
+  player.grace = 1.5; player.sadT = 2.5;
+  if (wallet <= 0) gameOver("Your wallet is empty"); else state = "play";
+}
+// Feeding finished safely: the feel-good moment.
+function finishFeed(c) {
+  const p = player;
+  p.feed = null;
+  c.fed = true; c.bowlOut = true; c.eatT = 12; c.heartT = 1.4;
+  fed++; streak++;
+  const pts = (100 + Math.min(streak - 1, 10) * 20) * L().mult;
+  feedPoints += pts;
+  toast(streak > 1 ? `+${pts}   streak x${streak}` : `+${pts}`);
+  caption(pick(HAPPY_LINES).replace("{name}", c.name), "happy", 2600);
+  for (let i = 0; i < 10; i++) {
+    const s = new THREE.Sprite(heartMat.clone());
+    s.renderOrder = 10; s.userData.dispose = [s.material];
+    at(s, c.x + (rnd() - 0.5) * 0.4, 1.0, c.z);
+    scene.add(s);
+    particles.push({ s, vx: (rnd() - 0.5) * 2, vy: 2 + rnd() * 1.4, vz: (rnd() - 0.5) * 2, life: 1.4 + rnd() * 0.5 });
+  }
+  $("warm").classList.add("on");
+  setTimeout(() => $("warm").classList.remove("on"), 420);
+  p.happyT = 2.6; p.cheerT = 0.9; p.vy = 4.5;
+  sfx.happy();
+  setTimeout(sfx.meow, 300);
 }
 function gameOver(reason) {
   overReason = reason; state = "over";
@@ -899,11 +1023,28 @@ function gameOver(reason) {
 function crash(what) { sfx.crash(); gameOver(`You walked into ${what}`); }
 
 function update(dt) {
-  const p = player;
-  const target = held.up || touchWalk || tiltWalk ? MAX_SPEED : 0;
-  p.speed = target > p.speed ? Math.min(target, p.speed + ACCEL * dt) : Math.max(target, p.speed - BRAKE * dt);
-  p.z += p.speed * dt;
-  p.runT += p.speed * dt;
+  const p = player, f = p.feed;
+  if (f) {
+    // Feeding takes time: walk up, kneel, put the bowl down, let the cat eat. Anyone looking catches you.
+    f.t += dt;
+    if (f.phase === "approach") {
+      const step = Math.min(Math.max(0, f.cat.z - FEED_GAP - p.z), 4 * dt);
+      p.z += step; p.runT += step; p.speed = step > 0 ? 4 : 0;
+      if (step <= 0.0001 || f.t > 2.5) { f.phase = "kneel"; f.t = 0; p.speed = 0; }
+    } else if (f.phase === "kneel" && f.t > 0.45) {
+      f.phase = "eat"; f.t = 0; f.crunch = 0.3;
+      f.cat.bowlOut = true; f.cat.eatT = 2.5;
+      sfx.bowl(); purr(2.4);
+    } else if (f.phase === "eat") {
+      if ((f.crunch -= dt) <= 0) { f.crunch = 0.22 + rnd() * 0.15; sfx.crunch(); }
+      if (f.t > 1.7) finishFeed(f.cat);
+    }
+  } else {
+    const target = held.up || touchWalk || tiltWalk ? MAX_SPEED : 0;
+    p.speed = target > p.speed ? Math.min(target, p.speed + ACCEL * dt) : Math.max(target, p.speed - BRAKE * dt);
+    p.z += p.speed * dt;
+    p.runT += p.speed * dt;
+  }
   p.x += (LANES[p.lane] - p.x) * Math.min(1, dt * 12);
   if (p.y > 0 || p.vy > 0) { p.vy -= 30 * dt; p.y += p.vy * dt; if (p.y <= 0) { p.y = 0; p.vy = 0; } }
   p.grace = Math.max(0, p.grace - dt);
@@ -938,7 +1079,7 @@ function update(dt) {
     const dz = it.z - p.z, dx = Math.abs(it.x - p.x);
     if (it.type === "cat") {
       it.heartT = Math.max(0, it.heartT - dt); it.eatT = Math.max(0, it.eatT - dt);
-      if (!it.fed && !it.missed && dz < -1) { it.missed = true; missed++; streak = 0; }
+      if (!it.fed && !it.missed && it.flee === undefined && dz < -1) { it.missed = true; missed++; streak = 0; }
       continue;
     }
     if (dx > 1.0 || Math.abs(dz) > 1.3) continue;
@@ -951,27 +1092,19 @@ function update(dt) {
     }
   }
 
+  if (p.feed && p.grace === 0) {
+    const w = watchers.find(sees);
+    if (w) { bust(w, w.kind === "camera" ? "A security camera filmed you feeding a stray cat." : "An officer saw you feeding a stray cat in public."); return; }
+  }
+
   p.target = null;
-  for (const c of items) {
-    if (c.type !== "cat" || c.fed) continue;
+  if (!p.feed) for (const c of items) {
+    if (c.type !== "cat" || c.fed || c.flee !== undefined) continue;
     const dz = c.z - p.z;
-    if (Math.abs(c.x - p.x) < 1.2 && dz > 0.5 && dz < 9 && (!p.target || dz < p.target.z - p.z)) p.target = c;
+    if (Math.abs(c.x - p.x) < 1.2 && dz > 0.5 && dz < 6 && (!p.target || dz < p.target.z - p.z)) p.target = c;
   }
-  if (feedPressed && p.target) {
-    const c = p.target;
-    c.fed = true; c.heartT = 1.4; c.eatT = 6; fed++; streak++;
-    const pts = (100 + Math.min(streak - 1, 10) * 20) * L().mult;
-    feedPoints += pts;
-    toast(streak > 1 ? `+${pts}   streak x${streak}` : `+${pts}`);
-    c.heart = new THREE.Sprite(heartMat.clone()); c.heart.renderOrder = 10; c.heart.userData.dispose = [c.heart.material]; scene.add(c.heart);
-    toss = { from: [p.x + 0.5, p.y + 1.4, p.z], cat: c, t: 0 };
-    sfx.toss(); sfx.fed();
-    if (rnd() < 0.5) sfx.meow();
-    const w = p.grace === 0 && watchers.find(sees);
-    if (w) { bust(w, w.kind === "camera" ? "A security camera filmed you feeding a stray cat." : "An officer saw you feeding a stray cat in public."); feedPressed = false; return; }
-  }
+  if (feedPressed && p.target && p.y === 0) { p.feed = { cat: p.target, phase: "approach", t: 0 }; p.target = null; sfx.toss(); }
   feedPressed = false;
-  if (toss && (toss.t += dt * 3) >= 1) toss = null;
   seenNow = p.grace === 0 && watchers.some(sees);
   score = feedPoints + Math.floor(p.z / 2) * L().mult;
   const t = titleFor(score);
@@ -982,39 +1115,70 @@ function update(dt) {
 const lerpAngle = (a, b, k) => a + Math.atan2(Math.sin(b - a), Math.cos(b - a)) * k;
 const camPos = new THREE.Vector3(), camLook = new THREE.Vector3(), tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
 
+let cine = 0;
+const cinePos = new THREE.Vector3(), cineLook = new THREE.Vector3();
 function sync(dt) {
-  const p = player, m = p.model, k = Math.min(1, dt * 8);
+  const p = player, m = p.model, k = Math.min(1, dt * 8), f = p.feed;
+  p.happyT = Math.max(0, p.happyT - dt); p.cheerT = Math.max(0, p.cheerT - dt); p.sadT = Math.max(0, p.sadT - dt);
+  const sad = (state === "caught" && caught.t > 0.3) || p.sadT > 0;
+  setMood(m, sad ? "sad" : p.happyT > 0 ? "happy" : "calm");
+  if (sad) m.expr.tear.position.y = -0.03 - ((time * 0.7) % 1) * 0.16;
+
   at(m.root, p.x, p.y, p.z);
   m.root.rotation.z = (LANES[p.lane] - p.x) * 0.08;
   const moving = p.speed > 0.2;
   animatePerson(m, p.runT * 1.7, p.y > 0.05 ? 0.25 : moving ? 0.75 * Math.min(1, p.speed / MAX_SPEED) : 0);
-  if (toss) m.arms[1].rotation.x = -2.4 * (1 - toss.t);
-  m.head.rotation.y += ((moving ? 0 : Math.sin(time * 0.6) * 0.35) - m.head.rotation.y) * k;
-  m.root.visible = camBlend < 0.5;
+  // Kneel by the cat, pet it while it eats, cheer afterwards, slump when caught.
+  p.kneel += ((f && f.phase !== "approach" ? 1 : 0) - p.kneel) * Math.min(1, dt * 7);
+  if (p.kneel > 0.01) {
+    m.body.position.y -= 0.3 * p.kneel; // crouch, leaning toward the cat
+    m.legs[0].rotation.x = -0.75 * p.kneel; m.legs[1].rotation.x = 0.35 * p.kneel;
+    m.arms[0].rotation.x = -0.6 * p.kneel;
+    m.arms[1].rotation.x = f && f.phase === "eat" ? -1.3 + Math.sin(time * 7) * 0.2 : -1.0 * p.kneel;
+  }
+  if (p.cheerT > 0) { m.arms[0].rotation.x = m.arms[1].rotation.x = -2.7; }
+  m.head.rotation.x += ((sad ? 0.5 : p.kneel > 0.5 ? 0.35 : 0) - m.head.rotation.x) * k;
+  m.body.rotation.x += ((sad ? 0.18 : p.kneel * 0.35) - m.body.rotation.x) * k;
+  m.head.rotation.y += ((moving || f ? 0 : Math.sin(time * 0.6) * 0.35) - m.head.rotation.y) * k;
+  m.root.visible = camBlend < 0.5 || cine > 0.3;
 
   for (const it of items) {
-    if (it.type === "cat") {
-      const c = it.model, eating = it.eatT > 0, focus = it === p.target;
-      c.bowl.visible = it.fed;
-      c.food.visible = eating;
-      c.head.rotation.x = eating ? 0.55 + Math.sin(time * 12) * 0.12 : focus ? -0.3 : Math.sin(time * 1.5 + it.seed) * 0.08;
-      c.head.rotation.y = eating ? 0.5 : focus ? 0 : Math.sin(time * 0.8 + it.seed) * 0.35;
-      c.tail.rotation.x += ((it.fed ? -0.15 : -0.9) - c.tail.rotation.x) * k;
-      c.tail.rotation.z = Math.sin(time * (it.fed ? 9 : 3) + it.seed) * 0.3;
-      c.body.scale.y = 1 + Math.sin(time * 3 + it.seed) * 0.02;
-      it.mesh.position.y = it.heartT > 1 ? Math.sin(((1.4 - it.heartT) / 0.4) * Math.PI) * 0.25 : 0; // happy hop
-      if (it.heart) {
-        it.heart.visible = it.heartT > 0;
-        at(it.heart, it.x, 1.4 + (1.4 - it.heartT) * 1.2, it.z);
-        it.heart.scale.setScalar(0.7);
-        it.heart.material.opacity = Math.min(1, it.heartT * 1.5);
+    if (it.type !== "cat") continue;
+    const c = it.model, eating = it.eatT > 0, focus = it === p.target || (f && f.cat === it);
+    c.bowl.visible = !!(it.bowlOut || it.fed);
+    c.food.visible = eating;
+    if (it.flee !== undefined) {
+      // Caught mid-meal: the cat looks at you, then runs off hungry.
+      it.flee += dt;
+      c.head.rotation.x = 0.3; c.tail.rotation.x += (-1.3 - c.tail.rotation.x) * k;
+      if (it.flee > 0.5) {
+        const dir = it.x <= 0 ? -1 : 1;
+        it.x += dir * 3.5 * dt; it.z += 2.5 * dt;
+        at(it.mesh, it.x, Math.abs(Math.sin(it.flee * 14)) * 0.18, it.z);
+        it.mesh.rotation.y = lerpAngle(it.mesh.rotation.y, Math.atan2(dir * 3.5, -2.5), k);
       }
+      if (it.flee > 2.4) { it.gone = true; it.mesh.visible = false; }
+      continue;
     }
+    c.head.rotation.x = eating ? 0.75 + Math.sin(time * 12) * 0.12 : focus ? -0.3 : Math.sin(time * 1.5 + it.seed) * 0.08;
+    c.head.rotation.y = eating ? Math.sin(time * 2) * 0.1 : focus ? 0 : Math.sin(time * 0.8 + it.seed) * 0.35;
+    c.tail.rotation.x += ((it.fed || eating ? -0.15 : -0.9) - c.tail.rotation.x) * k;
+    c.tail.rotation.z = Math.sin(time * (it.fed ? 9 : 3) + it.seed) * 0.3;
+    c.body.scale.y = 1 + Math.sin(time * (eating ? 9 : 3) + it.seed) * 0.02;
+    it.mesh.position.y = it.heartT > 1 ? Math.sin(((1.4 - it.heartT) / 0.4) * Math.PI) * 0.25 : 0; // happy hop
   }
+
+  for (const q of particles) {
+    q.life -= dt; q.vy -= 1.5 * dt;
+    q.s.position.x += q.vx * dt; q.s.position.y += q.vy * dt; q.s.position.z += q.vz * dt;
+    q.s.material.opacity = Math.min(1, q.life * 1.5);
+    q.s.scale.setScalar(0.35 + Math.max(0, 1.8 - q.life) * 0.2);
+  }
+  particles = particles.filter(q => q.life > 0 || (drop(q.s), false));
 
   for (const w of watchers) {
     const blink = w.state === "warn" && Math.floor(time * 6) % 2 === 0;
-    w.cone.visible = w.state === "watch";
+    w.cone.visible = w.state === "watch" && !w.gone;
     if (w.kind === "window") {
       const parts = w.win.parts;
       const ang = w.state === "watch" ? 1.9 : w.state === "warn" ? Math.sin(time * 40) * 0.12 : 0;
@@ -1043,19 +1207,23 @@ function sync(dt) {
       w.model.head.rotation.y += (look - w.model.head.rotation.y) * k;
       const walking = (w.kind === "walker" && w.state === "hidden") || (w.kind === "crosser" && w.state !== "watch");
       animatePerson(w.model, w.walkT, walking ? 0.6 : 0);
-      w.mesh.visible = !(w.kind === "alley" && w.state === "hidden");
+      w.mesh.visible = !w.gone && !(w.kind === "alley" && w.state === "hidden");
     }
-    w.bang.visible = blink && w.z - p.z < 70 && w.z - p.z > -4;
+    w.bang.visible = blink && !w.gone && w.z - p.z < 70 && w.z - p.z > -4;
+  }
+
+  // The officer who caught you walks up and writes the ticket.
+  if (state === "caught" && caught.cop) {
+    const o = caught.cop;
+    at(o.m.root, o.x, 0, o.z);
+    o.m.root.rotation.y = lerpAngle(o.m.root.rotation.y, o.face, k);
+    animatePerson(o.m, o.walkT, o.writing ? 0 : 0.6);
+    o.pad.visible = o.writing;
+    if (o.writing) { o.m.arms[1].rotation.x = -1.3 + Math.sin(time * 10) * 0.08; o.m.arms[0].rotation.x = -0.9; o.m.head.rotation.x = 0.25; }
   }
 
   prompt.visible = !!(p.target && state === "play");
   if (prompt.visible) { at(prompt, p.target.x, 1.75, p.target.z); prompt.scale.set(1.5, 0.56, 1).multiplyScalar(1 + Math.sin(time * 8) * 0.06); }
-
-  tossBall.visible = !!toss;
-  if (toss) {
-    const c = toss.cat, t = toss.t;
-    at(tossBall, toss.from[0] + (c.x + 0.55 - toss.from[0]) * t, toss.from[1] + (0.15 - toss.from[1]) * t + Math.sin(t * Math.PI) * 1.2, toss.from[2] + (c.z - toss.from[2]) * t);
-  }
 
   // Camera: third person behind and above, or first person at eye height; C blends between them.
   camBlend += (camMode - camBlend) * Math.min(1, dt * 5);
@@ -1065,9 +1233,22 @@ function sync(dt) {
   tmpA.set(p.x * 0.7, 0.8, -(p.z + 9));
   tmpB.set(p.x, 1.35 + p.y * 0.5, -(p.z + 12));
   camLook.lerpVectors(tmpA, tmpB, camBlend);
+  // Cinematic shots: close on the cat while it eats, and a side shot with the officer when caught.
+  let shot = false;
+  if (state === "caught" && caught.cop) {
+    const sgn = p.x <= 0 ? 1 : -1;
+    cinePos.set(p.x + sgn * 3.8, 2.3, -(p.z + 0.4)); cineLook.set(p.x + sgn * 0.3, 1.25, -(p.z + 0.8)); shot = true;
+  } else if (f && f.phase !== "approach") {
+    const c = f.cat, sgn = c.x <= 0 ? 1 : -1;
+    // side view: you kneeling on one side, the cat eating on the other
+    cinePos.set(c.x + sgn * 3.1, 1.7, -(c.z - 1.0)); cineLook.set(c.x, 0.6, -(c.z - 0.9)); shot = true;
+  }
+  cine += ((shot ? 1 : 0) - cine) * Math.min(1, dt * 2.5);
+  camPos.lerp(cinePos, cine);
+  camLook.lerp(cineLook, cine);
   camera.position.copy(camPos);
   camera.lookAt(camLook);
-  const fov = (camera.aspect < 1 ? 74 : 58) + 14 * camBlend; // wider view in portrait
+  const fov = (camera.aspect < 1 ? 74 : 58) + 14 * camBlend * (1 - cine); // wider view in portrait
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
 
   at(sun, p.x - 10, 24, p.z - 4);
@@ -1115,6 +1296,13 @@ function showCard(name) {
   if (shownCard === name) return;
   Object.entries(cards).forEach(([k, el]) => el.classList.toggle("show", k === name));
   shownCard = name;
+}
+let captionTimer = 0;
+function caption(text, kind, ms) {
+  const el = $("caption");
+  el.textContent = text; el.className = `show ${kind}`;
+  clearTimeout(captionTimer);
+  captionTimer = setTimeout(() => el.classList.remove("show"), ms);
 }
 let toastTimer = 0;
 function toast(msg, ms = 1300) {
@@ -1208,7 +1396,7 @@ function updateUI() {
     setText("sFed", String(fed)); setText("sMissed", String(missed));
     setText("sDist", `${fmt(player.z)} m`); setText("sFines", `${fmt(finesPaid)} MAD`);
   }
-  showCard(state === "play" ? null : state);
+  showCard(state === "play" || (state === "caught" && caught.t < 2.4) ? null : state);
 }
 
 // ---------- input ----------
@@ -1232,6 +1420,7 @@ addEventListener("keydown", e => {
   }
   if (isUp(k)) held.up = true;
   if (e.repeat) return;
+  if (state === "caught") { if (k === "enter" || k === " " || isUp(k)) { e.preventDefault(); endCaught(); } return; }
   if (state === "title" || state === "over") {
     if (k === "1" || k === "2" || k === "3") { setLevel(["easy", "normal", "hard"][+k - 1]); return; }
     if (k === "enter" && $("nameForm").classList.contains("show")) { e.preventDefault(); $("nameInput").focus(); return; }
@@ -1240,7 +1429,7 @@ addEventListener("keydown", e => {
   if ((k === "p" || k === "escape") && (state === "play" || state === "paused")) { state = state === "play" ? "paused" : "play"; return; }
   if (k === "m") { muted = !muted; return; }
   if (k === "c") { camMode = 1 - camMode; return; }
-  if (state !== "play") return;
+  if (state !== "play" || p.feed) return;
   if ((k === "arrowleft" || k === "a") && p.lane > 0) { p.lane--; sfx.lane(); }
   else if ((k === "arrowright" || k === "d") && p.lane < 2) { p.lane++; sfx.lane(); }
   else if ((k === "shift" || k === "j") && p.y === 0) { p.vy = 9.5; sfx.jump(); }
@@ -1263,7 +1452,7 @@ cv.addEventListener("pointerdown", e => {
   try { cv.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone; swipes still work without capture */ }
 });
 cv.addEventListener("pointermove", e => {
-  if (!swipe || e.pointerId !== swipe.id || state !== "play") return;
+  if (!swipe || e.pointerId !== swipe.id || state !== "play" || player.feed) return;
   const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y, p = player;
   if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
     const lane = p.lane + Math.sign(dx);
@@ -1278,6 +1467,7 @@ const endTouch = e => { if (swipe && e.pointerId === swipe.id) { swipe = null; t
 cv.addEventListener("pointerup", endTouch);
 cv.addEventListener("pointercancel", endTouch);
 $("feedBtn").addEventListener("pointerdown", e => { e.preventDefault(); audio(); if (state === "play") feedPressed = true; });
+$("caughtBtn").addEventListener("click", endCaught);
 $("pauseBtn").addEventListener("click", () => { if (state === "play") state = "paused"; });
 $("resumeBtn").addEventListener("click", () => { if (state === "paused") state = "play"; });
 $("camBtn").addEventListener("click", () => { camMode = 1 - camMode; });
@@ -1322,11 +1512,7 @@ function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now; time += dt;
   if (state === "play") update(dt);
-  else if (state === "caught" && (caught.t -= dt) <= 0) {
-    caught.w.state = "hidden"; caught.w.t = hiddenTime() + 1.5;
-    player.grace = 1.5;
-    if (wallet <= 0) gameOver("Your wallet is empty"); else state = "play";
-  }
+  else if (state === "caught") updateCaught(dt);
   sync(dt);
   updateUI();
   renderer.render(scene, camera);

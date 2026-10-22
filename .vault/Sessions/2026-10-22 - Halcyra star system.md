@@ -27,3 +27,4 @@ Project:: [[PROJECT]]
 - Play on a real GPU and tune difficulty (MAX_SPEED, hiddenTime, spawn rates in src).
 - v0.5.0: intro on Law 19.25, difficulty levels, security cameras, points/titles/leaderboard, character polish, red cones.
 - v0.6.0: touch/tilt controls, phone layout, GitHub Pages.
+- v0.7.0: emotional feeding and caught scenes, expressions, cat names.

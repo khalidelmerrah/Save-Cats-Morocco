@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.0] - 2026-10-22
+### Added
+- Feeding is now a moment: you walk up, crouch, set a bowl down and the cat eats (head bobbing, crunching, purring) while you reach out to it. Takes about two seconds, and anyone looking catches you.
+- Feel-good reward: heart burst, warm screen glow, happy tune, the player grins and hops with arms up, and a caption with the cat's name ("Zitouna finally eats today.").
+- Caught scene: whistle, colours drain, the cat runs away hungry, an officer walks up and writes a ticket in a side camera shot, the player hangs their head with a frown and a tear, sad melody, then the fine card. Continue with Enter, Space, Up or the button.
+- Player facial expressions (calm, happy, sad), cat names, cinematic camera blends.
+### Changed
+- Feeding range is now up to 6 m ahead (you walk the rest); the thrown food ball is replaced by the bowl.
+
 ## [0.6.0] - 2026-10-22 (commit: 9a936c6)
 ### Added
 - Phone and touch controls: hold a thumb to walk, swipe left or right to change lane, swipe up to jump, a big Feed button, on-screen Pause and Camera buttons.

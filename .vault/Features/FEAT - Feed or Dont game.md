@@ -42,3 +42,9 @@ Feeding, bust and fine, safe just outside the cone, three-hungry game over, titl
 - TOUCH = pointer:coarse or maxTouchPoints; body.touch shows #touchUI and touch help, lowers pixel ratio/shadows/fog.
 - Walking input = held.up || touchWalk || tiltWalk. Swipes re-arm inside one drag. Tilt maps beta/gamma by screen orientation angle, calibrated to the pose when tilt is switched on; iOS needs DeviceOrientationEvent.requestPermission from a tap, and HTTPS.
 - GitHub Pages serves the repo root; index.html redirects to feed-or-dont.html.
+
+## v0.7.0: emotion
+- player.feed = { cat, phase: approach -> kneel -> eat }, FEED_GAP 1.75 m; sees() checked every frame while feeding.
+- finishFeed(): hearts (sprite particles), #warm flash, caption, setMood happy, cheer. bust(): cat.flee, spawnOfficer (reuses nearby walking cop position), body.sad CSS desaturation, updateCaught timeline (card after 2.4 s), endCaught().
+- Faces: makeFace({expressive}) returns brows/smile/grin/frown/tear kept out of mergeStatic so setMood can toggle them.
+- Cinematic camera blends toward shot targets with `cine`; side shot for feeding, two-shot for caught.
