@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feed or Don't</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #1d1410; }
+  body { display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
+</style>
+</head>
+<body>
+<canvas id="screen" tabindex="0" aria-label="Feed or Don't, a 3D retro street runner. Hold up arrow to walk, left and right change lane, shift jumps, space tosses food to a cat, Enter starts, P pauses, M toggles sound."></canvas>
+<script>
+"use strict";
+// Low-resolution software 3D: everything is flat-shaded boxes and quads drawn far to near,
+// rendered into a 480x270 buffer and scaled up by a whole number for chunky retro pixels.
+// Camera sits high and close (like Subway Surfers) so cats in your lane are not hidden behind your head.
+const W = 480, H = 270, F = 210, CY = 150, NEAR = 0.4, FOG0 = 30, FOG1 = 95;
+const CAM_BACK = 5, CAM_UP = 6.2;
+const PITCH = 0.48, cosP = Math.cos(PITCH), sinP = Math.sin(PITCH);
+const HORIZON = Math.round(CY - F * Math.tan(PITCH));
+const LANES = [-2.6, 0, 2.6], STREET = 4.2, FACE = 6, VIEW = 100;
+const START_WALLET = 6000;
+const MAX_SPEED = 6.5, ACCEL = 9, BRAKE = 14; // m/s; you only move while holding UP
+
+const WALLS = ["#e2734a", "#f0a73a", "#d9686a", "#f3e7d3", "#3d7bd9", "#e89a5c"];
+const DOORS = ["#2f5fd0", "#18a06a", "#f2a922", "#d63a3a"];
+const SHUTTERS = ["#18a06a", "#2f5fd0", "#d63a3a"];
+const COATS = [["#f08a24", "#3a8f3a"], ["#f4f1ea", "#2f5fd0"], ["#2b2b2b", "#e0c02a"], ["#9a9a9a", "#3a8f3a"], ["#c8763a", "#2b2b2b"]];
+const FLAGS = ["#d63a3a", "#f2a922", "#18a06a", "#2f5fd0", "#f3e7d3"];
+const C = {
+  sky: "#6ec0f0", haze: "#bfe0f2", sun: "#fff1c1", street: "#d9a877", street2: "#d09c6a", lane: "#b9834f",
+  walk: "#ecd2a8", curb: "#c58f5c", trim: "#fff4e0", dark: "#3a2620", alley: "#5a3a2e",
+  skin: "#c68a5e", hair: "#2a1d16", hoodie: "#d63a3a", jeans: "#3b3f6b", bag: "#a8692e",
+  copBlue: "#2b4fb3", copNavy: "#1b2a5c", gold: "#e0b53a", white: "#f7f3ea",
+  crate: "#c27a3a", mint: "#2fa35a", cart: "#18a06a", wheel: "#3a2620", orange: "#f28a1e",
+  cone: "#fff7c2", ink: "#1d1410", cream: "#fff4e0", red: "#e0503f", yellow: "#ffd84a", pot: "#c8552f", leaf: "#2f9a4a",
+};
+
+const screen = document.getElementById("screen");
+const sctx = screen.getContext("2d");
+const buf = document.createElement("canvas");
+buf.width = W; buf.height = H;
+const g = buf.getContext("2d");
+function fit() {
+  // Fill the window (non-integer scale) so the game reads big at a demo table.
+  const s = Math.max(1, Math.min(innerWidth / W, innerHeight / H));
+  screen.width = Math.floor(W * s); screen.height = Math.floor(H * s);
+  sctx.imageSmoothingEnabled = false;
+}
+addEventListener("resize", fit);
+fit();
+
+// ---------- tiny 3D renderer ----------
+const cam = { x: 0, y: CAM_UP, z: -CAM_BACK };
+const rgbCache = {};
+const rgbOf = h => rgbCache[h] || (rgbCache[h] = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16)));
+const HAZE = rgbOf(C.haze);
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function toCam(x, y, z) {
+  const dx = x - cam.x, dy = y - cam.y, dz = z - cam.z;
+  return [dx, dy * cosP + dz * sinP, -dy * sinP + dz * cosP];
+}
+function clipNear(pts) {
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length], ain = a[2] >= NEAR, bin = b[2] >= NEAR;
+    if (ain) out.push(a);
+    if (ain !== bin) {
+      const t = (NEAR - a[2]) / (b[2] - a[2]);
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, NEAR]);
+    }
+  }
+  return out;
+}
+function fill(hexCol, shade, depth, alpha = 1) {
+  const c = rgbOf(hexCol), f = clamp((depth - FOG0) / (FOG1 - FOG0), 0, 1);
+  const ch = i => Math.round(c[i] * shade * (1 - f) + HAZE[i] * f);
+  return alpha < 1 ? `rgba(${ch(0)},${ch(1)},${ch(2)},${alpha})` : `rgb(${ch(0)},${ch(1)},${ch(2)})`;
+}
+function poly(world, col, shade = 1, alpha = 1, outline = null) {
+  const pts = clipNear(world.map(p => toCam(p[0], p[1], p[2])));
+  if (pts.length < 3) return;
+  let d = 0;
+  for (const p of pts) d += p[2];
+  g.fillStyle = fill(col, shade, d / pts.length, alpha);
+  g.beginPath();
+  pts.forEach((p, i) => {
+    const sx = W / 2 + F * p[0] / p[2], sy = CY - F * p[1] / p[2];
+    if (i) g.lineTo(sx, sy); else g.moveTo(sx, sy);
+  });
+  g.closePath();
+  g.fill();
+  if (outline) { g.strokeStyle = outline; g.lineWidth = 1; g.stroke(); }
+}
+// Axis-aligned box; only faces turned toward the camera are drawn. Light comes from upper left.
+function box(x0, x1, y0, y1, z0, z1, col) {
+  if (cam.z < z0) poly([[x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]], col, 0.86);
+  else if (cam.z > z1) poly([[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]], col, 0.7);
+  if (cam.x < x0) poly([[x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0]], col, 0.72);
+  else if (cam.x > x1) poly([[x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0]], col, 0.94);
+  if (cam.y > y1) poly([[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]], col, 1);
+}
+function project(x, y, z) {
+  const p = toCam(x, y, z);
+  return p[2] < NEAR ? null : [W / 2 + F * p[0] / p[2], CY - F * p[1] / p[2], p[2]];
+}
+
+// ---------- 3x5 pixel font ----------
+const GLYPHS = {
+  A: "25755", B: "65656", C: "34443", D: "65556", E: "74647", F: "74644", G: "34553", H: "55755",
+  I: "72227", J: "11152", K: "55655", L: "44447", O: "25552", P: "65644", Q: "25573", R: "65655",
+  S: "34216", T: "72222", U: "55557", V: "55552", X: "55255", Y: "55222", Z: "71247",
+  0: "75557", 1: "26227", 2: "61247", 3: "61216", 4: "55711", 5: "74616", 6: "34757", 7: "71122",
+  8: "75757", 9: "75711", ":": "02020", "!": "22202", ".": "00002", ",": "00024", "-": "00700",
+  "'": "22000", "?": "61202", "/": "11244", "+": "02720", "(": "24442", ")": "42224", "<": "12421",
+  ">": "42124", " ": "00000",
+};
+// M, N and W are unreadable at 3 pixels wide, so they get wider rows (bit masks).
+const WIDE = { M: [5, [17, 27, 21, 17, 17]], N: [4, [9, 13, 11, 9, 9]], W: [5, [17, 17, 21, 27, 17]] };
+const glyph = ch => WIDE[ch] || [3, [...(GLYPHS[ch] || "00000")].map(Number)];
+function text(s, x, y, col, sc = 1, align = "left") {
+  s = String(s).toUpperCase();
+  const w = ([...s].reduce((n, ch) => n + glyph(ch)[0] + 1, 0) - 1) * sc;
+  if (align === "center") x -= Math.floor(w / 2); else if (align === "right") x -= w;
+  x = Math.round(x); y = Math.round(y);
+  g.fillStyle = col;
+  for (const ch of s) {
+    const [gw, rows] = glyph(ch);
+    for (let r = 0; r < 5; r++)
+      for (let c = 0; c < gw; c++) if (rows[r] & (1 << (gw - 1 - c))) g.fillRect(x + c * sc, y + r * sc, sc, sc);
+    x += (gw + 1) * sc;
+  }
+}
+function textS(s, x, y, col, sc = 1, align = "left") { text(s, x + sc, y + sc, C.ink, sc, align); text(s, x, y, col, sc, align); }
+const fmt = n => Math.round(n).toLocaleString("en-US");
+
+// ---------- sound (synthesized, no files) ----------
+let ac = null, master = null, noiseBuf = null, muted = false;
+function audio() {
+  try {
+    if (!ac) {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      master = ac.createGain(); master.gain.value = 0.6; master.connect(ac.destination);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate / 2, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    if (ac.state === "suspended") ac.resume();
+  } catch (e) { console.warn("Audio unavailable:", e); }
+}
+function tone(f, dur, { type = "square", vol = 0.06, slide = 0, at = 0 } = {}) {
+  if (!ac || muted) return;
+  const t = ac.currentTime + at, o = ac.createOscillator(), gn = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+  gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(gn).connect(master); o.start(t); o.stop(t + dur + 0.02);
+}
+function hiss(dur, vol = 0.04, at = 0, hp = 1500) {
+  if (!ac || muted) return;
+  const t = ac.currentTime + at, s = ac.createBufferSource(), f = ac.createBiquadFilter(), gn = ac.createGain();
+  s.buffer = noiseBuf; f.type = "highpass"; f.frequency.value = hp;
+  gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f).connect(gn).connect(master); s.start(t); s.stop(t + dur);
+}
+const sfx = {
+  lane: () => hiss(0.06, 0.03, 0, 3000),
+  jump: () => tone(300, 0.18, { vol: 0.05, slide: 700 }),
+  toss: () => tone(900, 0.08, { type: "triangle", vol: 0.05, slide: 500 }),
+  meow: () => { tone(620, 0.08, { type: "triangle", vol: 0.05, slide: 820 }); tone(820, 0.22, { type: "triangle", vol: 0.05, slide: 480, at: 0.08 }); },
+  fed: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.1, { vol: 0.04, at: 0.1 + i * 0.07 })),
+  warn: () => { tone(180, 0.07, { vol: 0.05 }); tone(150, 0.09, { vol: 0.05, at: 0.1 }); },
+  whistle: () => {
+    for (let i = 0; i < 10; i++) tone(i % 2 ? 2350 : 2100, 0.06, { vol: 0.035, at: i * 0.06 });
+    [440, 392, 330, 262].forEach((f, i) => tone(f, 0.14, { vol: 0.05, at: 0.75 + i * 0.12 }));
+  },
+  crash: () => { hiss(0.4, 0.08, 0, 200); tone(120, 0.5, { vol: 0.07, slide: 50 }); },
+  start: () => [294, 370, 440, 587].forEach((f, i) => tone(f, 0.1, { vol: 0.05, at: i * 0.08 })),
+};
+// Background loop in a Hijaz-flavoured scale (D Eb F# G A Bb C).
+const MELODY = [294, 370, 392, 440, 392, 370, 311, 294, 440, 466, 440, 392, 370, 392, 370, 0];
+let nextNote = 0, noteStep = 0;
+setInterval(() => {
+  if (!ac || muted || state !== "play") { nextNote = 0; return; }
+  if (nextNote < ac.currentTime) nextNote = ac.currentTime + 0.05;
+  while (nextNote < ac.currentTime + 0.25) {
+    const at = nextNote - ac.currentTime, f = MELODY[noteStep % 16];
+    if (f) tone(f, 0.13, { type: "triangle", vol: 0.03, at });
+    if (noteStep % 2 === 0) tone(noteStep % 8 === 0 ? 73.4 : 110, 0.15, { vol: 0.018, at });
+    if (noteStep % 4 === 2) hiss(0.04, 0.02, at, 4000);
+    nextNote += 0.16; noteStep++;
+  }
+}, 50);
+
+// ---------- world ----------
+const rnd = Math.random;
+const pick = a => a[Math.floor(rnd() * a.length)];
+let segs, items, watchers, genZ, rowZ;
+
+function addWatcher(w) {
+  Object.assign(w, { state: "hidden", t: 0.5 + rnd() * 4, dur: 1, walkT: 0, gone: false });
+  watchers.push(w);
+  return w;
+}
+function generate(upto) {
+  for (const side of [-1, 1]) {
+    while (genZ[side] < upto) {
+      const z0 = genZ[side];
+      if (z0 > 25 && rnd() < 0.2) {
+        const s = { side, z0, z1: z0 + 4, alley: true };
+        if (z0 > 60 && rnd() < 0.5) items.push(addWatcher({ kind: "alley", type: "cop", side, x: side * 6.4, z: z0 + 2 }));
+        segs.push(s); genZ[side] += 4;
+        continue;
+      }
+      const len = 8 + Math.floor(rnd() * 6), h = 7 + rnd() * 9;
+      const b = {
+        side, z0, z1: z0 + len, h, col: pick(WALLS), trim: rnd() < 0.5 ? C.trim : C.cart,
+        door: z0 + 2 + rnd() * (len - 4), doorCol: pick(DOORS), shut: pick(SHUTTERS), awning: rnd() < 0.35, windows: [],
+      };
+      for (let wz = z0 + 1.6; wz < z0 + len - 1.4; wz += 3)
+        for (const wy of h > 11 ? [4.2, 7.8] : [4.2]) b.windows.push({ z: wz, y: wy, open: rnd() < 0.4, plant: rnd() < 0.5, cop: null });
+      if (z0 > 60 && rnd() < 0.35 && b.windows.length) {
+        const w = pick(b.windows);
+        w.cop = addWatcher({ kind: "window", side, x: side * FACE, z: w.z, y: w.y });
+        w.open = false;
+      }
+      segs.push(b); genZ[side] += len;
+    }
+  }
+  while (rowZ < upto) { spawnRow(rowZ); rowZ += 7 + rnd() * 5; }
+}
+function spawnRow(z) {
+  const lanes = [0, 1, 2].sort(() => rnd() - 0.5);
+  let used = 0;
+  if (z > 45) {
+    const n = rnd() < 0.55 ? (rnd() < 0.3 ? 2 : 1) : 0;
+    for (; used < n; used++) items.push({ type: rnd() < 0.6 ? "crate" : "cart", x: LANES[lanes[used]], z });
+  }
+  if (rnd() < 0.65) {
+    const [coat, eye] = pick(COATS);
+    items.push({ type: "cat", x: LANES[lanes[used]], z, coat, eye, fed: false, missed: false, heartT: 0, eatT: 0 });
+    used++;
+  }
+  if (z > 70 && used < 3 && rnd() < 0.14)
+    items.push(addWatcher({ kind: "walker", type: "cop", x: LANES[lanes[used]], z: z + 3.5 }));
+  if (z > 90 && rnd() < 0.08) {
+    const dir = rnd() < 0.5 ? 1 : -1;
+    items.push(addWatcher({ kind: "crosser", type: "cop", x: -dir * 4.8, dir, z: z + 4 }));
+  }
+  if (rnd() < 0.18) items.push({ type: "bunting", x: 0, z: z + 2 });
+}
+
+// ---------- game state ----------
+let state = "title", player, wallet, fed, missed, finesPaid, caught, overReason = "", toss = null;
+let best = 0, seenNow = false, time = 0, feedPressed = false;
+try { best = +localStorage.getItem("feed-or-dont-3d-best") || 0; } catch (e) { /* storage blocked: best stays 0 */ }
+
+function reset() {
+  segs = []; items = []; watchers = [];
+  genZ = { "-1": -10, "1": -10 }; rowZ = 22;
+  player = { lane: 1, x: 0, y: 0, vy: 0, z: 0, speed: 0, runT: 0, grace: 0, target: null };
+  wallet = START_WALLET; fed = 0; missed = 0; finesPaid = 0; caught = null; toss = null; seenNow = false;
+  generate(VIEW + 10);
+}
+
+const difficulty = () => clamp(player.z / 2000, 0, 1);
+const hiddenTime = () => (2.2 + rnd() * 3.5) * (1 - 0.45 * difficulty());
+const warnTime = () => 1.1 - 0.45 * difficulty();
+const watchTime = () => 1.6 + rnd() * 1.6;
+
+// Vision rules mirror the cones drawn on the ground, so what you see is what counts.
+function coneHalfWidth(w, px) {
+  if (w.kind === "window" || w.kind === "alley") return 3 + 5 * (STREET - w.side * px) / (2 * STREET);
+  return 0;
+}
+function sees(w) {
+  if (w.state !== "watch" || w.gone) return false;
+  const p = player, dz = w.z - p.z;
+  if (w.kind === "window" || w.kind === "alley") return Math.abs(dz) < coneHalfWidth(w, p.x);
+  return dz > -1 && dz < 20 && Math.abs(w.x - p.x) < 0.5 + Math.max(0, dz) * 0.4;
+}
+
+function bust(w, reason) {
+  const fine = 500 + Math.floor(rnd() * 16) * 100; // 500 to 2,000 MAD, the range in Law 19.25
+  wallet -= fine; finesPaid += fine;
+  caught = { fine, t: 2.4, w, reason };
+  state = "caught";
+  sfx.whistle();
+}
+function gameOver(reason) {
+  overReason = reason; state = "over";
+  if (fed > best) { best = fed; try { localStorage.setItem("feed-or-dont-3d-best", String(best)); } catch (e) { /* ignore */ } }
+}
+function crash(what) { sfx.crash(); gameOver(`YOU RAN INTO ${what}`); }
+
+function update(dt) {
+  const p = player;
+  const target = held.up ? MAX_SPEED : 0;
+  p.speed = target > p.speed ? Math.min(target, p.speed + ACCEL * dt) : Math.max(target, p.speed - BRAKE * dt);
+  p.z += p.speed * dt;
+  p.runT += p.speed * dt;
+  p.x += (LANES[p.lane] - p.x) * Math.min(1, dt * 14);
+  if (p.y > 0 || p.vy > 0) { p.vy -= 32 * dt; p.y += p.vy * dt; if (p.y <= 0) { p.y = 0; p.vy = 0; } }
+  p.grace = Math.max(0, p.grace - dt);
+
+  generate(p.z + VIEW + 10);
+  segs = segs.filter(s => s.z1 > p.z - 12);
+  items = items.filter(it => it.z > p.z - 12 && !it.gone);
+  watchers = watchers.filter(w => w.z > p.z - 12 && !w.gone);
+
+  for (const w of watchers) {
+    w.t -= dt;
+    if (w.t <= 0) {
+      if (w.state === "hidden") { w.state = "warn"; w.t = w.dur = warnTime(); const dz = w.z - p.z; if (dz > -2 && dz < 35) sfx.warn(); }
+      else if (w.state === "warn") { w.state = "watch"; w.t = w.dur = watchTime(); }
+      else { w.state = "hidden"; w.t = hiddenTime(); }
+    }
+    if (w.kind === "walker" && w.state === "hidden") { w.z += 2.2 * dt; w.walkT += dt * 9; }
+    if (w.kind === "crosser" && w.state !== "watch") {
+      w.x += w.dir * 1.7 * dt; w.walkT += dt * 9;
+      if (Math.abs(w.x) > 5.2 && Math.sign(w.x) === w.dir) w.gone = true;
+    }
+    if (w.kind === "alley") w.x += ((w.state === "watch" ? 5.0 : 6.4) * w.side - w.x) * Math.min(1, dt * 6);
+  }
+
+  for (const it of items) {
+    const dz = it.z - p.z, dx = Math.abs(it.x - p.x);
+    if (it.type === "cat") {
+      it.heartT = Math.max(0, it.heartT - dt); it.eatT = Math.max(0, it.eatT - dt);
+      if (!it.fed && !it.missed && dz < -1) { it.missed = true; missed++; }
+      continue;
+    }
+    if (dx > 1.0 || Math.abs(dz) > 1.3) continue;
+    if (it.type === "crate" && Math.abs(dz) < 0.6 && p.y < 0.85) { crash("A CRATE OF MINT"); return; }
+    if (it.type === "cart" && Math.abs(dz) < 1.1) { crash("A FRUIT CART"); return; }
+    if (it.type === "cop" && it.kind !== "alley" && Math.abs(dz) < 0.6 && dx < 0.9) {
+      it.gone = true;
+      bust(it, "YOU BUMPED INTO THE POLICE WITH A BAG OF CAT FOOD");
+      return;
+    }
+  }
+
+  p.target = null;
+  for (const c of items) {
+    if (c.type !== "cat" || c.fed) continue;
+    const dz = c.z - p.z;
+    if (Math.abs(c.x - p.x) < 1.2 && dz > 0.5 && dz < 9 && (!p.target || dz < p.target.z - p.z)) p.target = c;
+  }
+  if (feedPressed && p.target) {
+    const c = p.target;
+    c.fed = true; c.heartT = 1.4; c.eatT = 6; fed++;
+    toss = { from: [p.x + 0.5, p.y + 1.3, p.z], cat: c, t: 0 };
+    sfx.toss(); sfx.fed();
+    if (Math.abs(c.x - p.x) < 4 && rnd() < 0.5) sfx.meow();
+    const w = p.grace === 0 && watchers.find(sees);
+    if (w) { bust(w, "SEEN FEEDING A STRAY IN PUBLIC"); feedPressed = false; return; }
+  }
+  feedPressed = false;
+  if (toss && (toss.t += dt * 3) >= 1) toss = null;
+  seenNow = p.grace === 0 && watchers.some(sees);
+}
+
+// ---------- models ----------
+function drawPlayer(p) {
+  const { x, y, z } = p, air = y > 0.05, s = air ? 0 : Math.sin(p.runT * 1.4) * 0.35;
+  box(x - 0.3, x - 0.06, y, y + 0.85, z - 0.12 + s, z + 0.12 + s, C.jeans);
+  box(x + 0.06, x + 0.3, y, y + 0.85, z - 0.12 - s, z + 0.12 - s, C.jeans);
+  box(x - 0.62, x - 0.42, y + 1.0, y + 1.7, z - 0.1 - s, z + 0.1 - s, C.hoodie);
+  box(x + 0.42, x + 0.62, y + 1.0, y + 1.7, z - 0.1 + s, z + 0.1 + s, C.hoodie);
+  box(x - 0.42, x + 0.42, y + 0.8, y + 1.75, z - 0.25, z + 0.25, C.hoodie);
+  box(x + 0.62, x + 0.92, y + 0.85, y + 1.25, z - 0.15 + s, z + 0.15 + s, C.bag);
+  box(x - 0.25, x + 0.25, y + 1.75, y + 2.25, z - 0.25, z + 0.25, C.skin);
+  box(x - 0.27, x + 0.27, y + 1.95, y + 2.32, z - 0.27, z + 0.27, C.hair);
+}
+function drawCat(c) {
+  const { x, z, coat } = c, bob = c.eatT > 0 && Math.sin(time * 12) > 0 ? 0.06 : 0;
+  if (c.fed) {
+    box(x + 0.45, x + 0.9, 0, 0.14, z - 0.4, z + 0.05, "#2f5fd0");
+    if (c.eatT > 0) box(x + 0.5, x + 0.85, 0.14, 0.2, z - 0.35, z, C.orange);
+  }
+  box(x + 0.18, x + 0.3, 0.05, 0.75, z + 0.4, z + 0.52, coat);
+  box(x - 0.34, x + 0.34, 0, 0.55, z - 0.1, z + 0.45, coat);
+  box(x - 0.26, x + 0.26, 0.45 - bob, 0.9 - bob, z - 0.32, z + 0.05, coat);
+  box(x - 0.25, x - 0.1, 0.9 - bob, 1.08 - bob, z - 0.2, z - 0.08, coat);
+  box(x + 0.1, x + 0.25, 0.9 - bob, 1.08 - bob, z - 0.2, z - 0.08, coat);
+  if (!bob) {
+    box(x - 0.17, x - 0.07, 0.66, 0.75, z - 0.35, z - 0.32, c.eye);
+    box(x + 0.07, x + 0.17, 0.66, 0.75, z - 0.35, z - 0.32, c.eye);
+  }
+  box(x - 0.04, x + 0.04, 0.55, 0.61, z - 0.35, z - 0.32, "#e07a8a");
+}
+function drawCop(w) {
+  const { x, z } = w, facing = w.state === "watch", s = facing ? 0 : Math.sin(w.walkT) * 0.25;
+  box(x - 0.3, x - 0.06, 0, 0.9, z - 0.12 + s, z + 0.12 + s, C.copNavy);
+  box(x + 0.06, x + 0.3, 0, 0.9, z - 0.12 - s, z + 0.12 - s, C.copNavy);
+  box(x - 0.62, x - 0.42, 1.0, 1.75, z - 0.1 - s, z + 0.1 - s, C.copBlue);
+  box(x + 0.42, x + 0.62, 1.0, 1.75, z - 0.1 + s, z + 0.1 + s, C.copBlue);
+  box(x - 0.42, x + 0.42, 0.85, 1.8, z - 0.25, z + 0.25, C.copBlue);
+  box(x - 0.43, x + 0.43, 0.88, 0.98, z - 0.26, z + 0.26, C.white);
+  box(x - 0.25, x + 0.25, 1.8, 2.25, z - 0.25, z + 0.25, C.skin);
+  box(x - 0.3, x + 0.3, 2.15, 2.45, z - 0.3, z + 0.3, C.copNavy);
+  box(x - 0.31, x + 0.31, 2.15, 2.24, z - 0.31, z + 0.31, C.gold);
+  if (facing) {
+    box(x - 0.3, x + 0.3, 2.13, 2.19, z - 0.5, z - 0.3, C.copNavy);
+    box(x - 0.15, x - 0.06, 1.98, 2.06, z - 0.28, z - 0.25, C.ink);
+    box(x + 0.06, x + 0.15, 1.98, 2.06, z - 0.28, z - 0.25, C.ink);
+    box(x + 0.12, x + 0.28, 1.45, 1.6, z - 0.28, z - 0.25, C.gold);
+  } else {
+    box(x - 0.25, x + 0.25, 1.85, 2.15, z + 0.25, z + 0.27, C.hair);
+  }
+}
+function drawCrate(it) {
+  const { x, z } = it;
+  box(x - 0.75, x + 0.75, 0, 0.8, z - 0.45, z + 0.45, C.crate);
+  box(x - 0.76, x + 0.76, 0.35, 0.45, z - 0.46, z + 0.46, "#a5622c");
+  box(x - 0.6, x + 0.6, 0.8, 1.0, z - 0.35, z + 0.35, C.mint);
+}
+function drawCart(it) {
+  const { x, z } = it;
+  box(x - 0.85, x - 0.65, 0, 0.6, z - 0.35, z + 0.35, C.wheel);
+  box(x + 0.65, x + 0.85, 0, 0.6, z - 0.35, z + 0.35, C.wheel);
+  box(x - 0.8, x + 0.8, 0.5, 1.3, z - 1.0, z + 1.0, C.cart);
+  box(x - 0.7, x + 0.7, 1.3, 1.6, z - 0.9, z + 0.9, C.orange);
+  box(x - 0.4, x + 0.4, 1.6, 1.8, z - 0.5, z + 0.5, "#f2a922");
+}
+function drawBunting(it) {
+  poly([[-FACE, 8.3, it.z], [FACE, 8.3, it.z], [FACE, 8.25, it.z], [-FACE, 8.25, it.z]], C.ink);
+  for (let i = 0, x = -5.6; x < 5.6; x += 0.8, i++)
+    poly([[x, 8.28, it.z], [x + 0.6, 8.28, it.z], [x + 0.3, 7.7, it.z]], FLAGS[i % FLAGS.length]);
+}
+
+// ---------- scenery ----------
+function faceQuad(side, za, zb, ya, yb, col, off = 0.02) {
+  const x = side * (FACE - off), shade = side < 0 ? 0.94 : 0.74;
+  poly([[x, ya, za], [x, ya, zb], [x, yb, zb], [x, yb, za]], col, shade);
+}
+function archQuad(side, zc, halfW, top, col, off) {
+  const x = side * (FACE - off), shade = side < 0 ? 0.94 : 0.74, pts = [[x, 0, zc - halfW], [x, 0, zc + halfW]];
+  for (let a = 0; a <= Math.PI; a += Math.PI / 6) pts.push([x, top + Math.sin(a) * halfW, zc + Math.cos(a) * halfW]);
+  poly(pts, col, shade);
+}
+function sideBox(side, xa, xb, y0, y1, z0, z1, col) { box(Math.min(side * xa, side * xb), Math.max(side * xa, side * xb), y0, y1, z0, z1, col); }
+
+function drawWindow(b, win) {
+  const { side } = b, { z, y } = win, cop = win.cop;
+  faceQuad(side, z - 0.85, z + 0.85, y - 1.1, y + 1.1, b.trim);
+  faceQuad(side, z - 0.62, z + 0.62, y - 0.88, y + 0.88, C.dark, 0.03);
+  const open = cop ? cop.state === "watch" : win.open;
+  if (open) {
+    faceQuad(side, z - 1.3, z - 0.66, y - 0.88, y + 0.88, b.shut, 0.04);
+    faceQuad(side, z + 0.66, z + 1.3, y - 0.88, y + 0.88, b.shut, 0.04);
+  } else {
+    const j = cop && cop.state === "warn" && Math.floor(time * 16) % 2 ? 0.1 : 0; // rattling shutters
+    faceQuad(side, z - 0.62 - j, z - j, y - 0.88, y + 0.88, b.shut, 0.04);
+    faceQuad(side, z + j, z + 0.62 + j, y - 0.88, y + 0.88, b.shut, 0.04);
+  }
+  sideBox(side, FACE, FACE - 0.25, y - 1.2, y - 1.08, z - 0.95, z + 0.95, b.trim);
+  if (cop && cop.state === "watch") {
+    sideBox(side, FACE + 0.2, FACE - 0.45, y - 0.88, y - 0.5, z - 0.5, z + 0.5, C.copBlue);
+    sideBox(side, FACE + 0.2, FACE - 0.45, y - 0.5, y + 0.02, z - 0.28, z + 0.28, C.skin);
+    sideBox(side, FACE + 0.2, FACE - 0.5, y - 0.02, y + 0.28, z - 0.33, z + 0.33, C.copNavy);
+    sideBox(side, FACE - 0.5, FACE - 0.52, y - 0.02, y + 0.06, z - 0.33, z + 0.33, C.gold);
+    sideBox(side, FACE - 0.45, FACE - 0.48, y - 0.3, y - 0.2, z - 0.16, z - 0.06, C.ink);
+    sideBox(side, FACE - 0.45, FACE - 0.48, y - 0.3, y - 0.2, z + 0.06, z + 0.16, C.ink);
+  } else if (!cop && win.open && win.plant) {
+    sideBox(side, FACE, FACE - 0.4, y - 1.08, y - 0.75, z - 0.5, z + 0.5, C.pot);
+    sideBox(side, FACE, FACE - 0.35, y - 0.75, y - 0.45, z - 0.55, z + 0.55, C.leaf);
+  }
+}
+function drawSeg(s) {
+  const { side } = s;
+  if (s.alley) {
+    poly([[side * FACE, 0.01, s.z0], [side * 12, 0.01, s.z0], [side * 12, 0.01, s.z1], [side * FACE, 0.01, s.z1]], C.dark);
+    sideBox(side, 10, 12, 0, 9, s.z0, s.z1, C.alley);
+    sideBox(side, FACE - 0.1, FACE + 0.4, 4.8, 5.6, s.z0, s.z1, C.trim);
+    return;
+  }
+  sideBox(side, FACE, 12, 0, s.h, s.z0, s.z1, s.col);
+  sideBox(side, FACE - 0.25, FACE, s.h - 0.6, s.h, s.z0, s.z1, s.trim);
+  faceQuad(side, s.z0, s.z1, 0, 0.9, s.trim === C.trim ? C.cart : C.trim);
+  for (let z = s.z0 + 0.2; z < s.z1 - 0.4; z += 0.9) faceQuad(side, z, z + 0.45, 0.2, 0.65, s.doorCol, 0.03);
+  archQuad(side, s.door, 1.0, 2.3, s.trim, 0.03);
+  archQuad(side, s.door, 0.8, 2.3, s.doorCol, 0.04);
+  faceQuad(side, s.door + 0.3, s.door + 0.42, 1.1, 1.3, C.gold, 0.05);
+  if (s.awning) for (let i = 0; i < 5; i++)
+    sideBox(side, FACE, FACE - 1.3, 3.0, 3.2, s.door - 1.25 + i * 0.5, s.door - 0.75 + i * 0.5, i % 2 ? C.white : C.red);
+  for (const win of s.windows) drawWindow(s, win);
+}
+function drawGround() {
+  const z0 = Math.floor(cam.z / 2) * 2;
+  for (let z = z0 + VIEW; z >= z0; z -= 2) {
+    const alt = (z / 2) % 2 === 0;
+    poly([[-STREET, 0, z], [STREET, 0, z], [STREET, 0, z + 2.05], [-STREET, 0, z + 2.05]], alt ? C.street : C.street2);
+    if (alt) for (const lx of [-1.3, 1.3]) poly([[lx - 0.06, 0.01, z], [lx + 0.06, 0.01, z], [lx + 0.06, 0.01, z + 1.2], [lx - 0.06, 0.01, z + 1.2]], C.lane);
+    for (const side of [-1, 1]) {
+      poly([[side * STREET, 0.15, z], [side * FACE, 0.15, z], [side * FACE, 0.15, z + 2.05], [side * STREET, 0.15, z + 2.05]], C.walk, alt ? 1 : 0.95);
+      poly([[side * STREET, 0, z], [side * STREET, 0.15, z], [side * STREET, 0.15, z + 2.05], [side * STREET, 0, z + 2.05]], C.curb, 0.85);
+    }
+  }
+}
+function drawSky() {
+  g.fillStyle = C.sky; g.fillRect(0, 0, W, H);
+  g.fillStyle = C.haze; g.fillRect(0, HORIZON - 14, W, 40);
+  g.fillStyle = C.sun;
+  g.beginPath(); g.arc(W * 0.8, 34, 14, 0, Math.PI * 2); g.fill();
+  // Koutoubia-style minaret far away at the end of the street
+  const mx = Math.round(W / 2 + 30 - cam.x * 2);
+  g.fillStyle = "#e6c8a2";
+  g.fillRect(mx, HORIZON - 30, 10, 34); g.fillRect(mx - 1, HORIZON - 33, 12, 3);
+  g.fillRect(mx + 3, HORIZON - 40, 4, 7); g.fillRect(mx + 4, HORIZON - 44, 2, 4);
+}
+function drawCones() {
+  for (const w of watchers) {
+    if (w.state !== "watch") continue;
+    const dz = w.z - player.z;
+    if (dz < -12 || dz > VIEW) continue;
+    let pts;
+    if (w.kind === "window" || w.kind === "alley") {
+      const s = w.side;
+      pts = [[s * STREET, 0.03, w.z - 3], [s * STREET, 0.03, w.z + 3], [-s * STREET, 0.03, w.z + 8], [-s * STREET, 0.03, w.z - 8]];
+    } else {
+      pts = [[w.x - 0.5, 0.03, w.z], [w.x + 0.5, 0.03, w.z], [clamp(w.x + 8.5, -STREET, STREET), 0.03, w.z - 20], [clamp(w.x - 8.5, -STREET, STREET), 0.03, w.z - 20]];
+    }
+    poly(pts, C.cone, 1, 0.5, C.yellow);
+  }
+}
+
+function drawHeart(x, y, sc) {
+  g.fillStyle = "#e0503f";
+  ["##.##", "#####", ".###.", "..#.."].forEach((r, j) => [...r].forEach((ch, i) => {
+    if (ch === "#") g.fillRect(Math.round(x + i * sc), Math.round(y + j * sc), sc, sc);
+  }));
+}
+function drawOverlays3D() {
+  const p = player;
+  for (const w of watchers) {
+    if (w.state !== "warn" || Math.floor(time * 6) % 2) continue;
+    const at = w.kind === "window" ? [w.side * 5.6, w.y + 1.6, w.z] : [w.x, 2.9, w.z];
+    const s = project(...at);
+    if (s && s[2] < 70) textS("!", s[0] - 3, s[1] - 18, C.yellow, s[2] < 25 ? 4 : 3);
+  }
+  for (const c of items) {
+    if (c.type !== "cat") continue;
+    if (c.heartT > 0) { const s = project(c.x, 1.3 + (1.4 - c.heartT) * 1.2, c.z); if (s) drawHeart(s[0] - 5, s[1], 2); }
+  }
+  if (p.target && state === "play") {
+    const s = project(p.target.x, 1.5, p.target.z);
+    if (s && Math.floor(time * 4) % 2 === 0) textS("SPACE", s[0], s[1] - 12, C.yellow, 2, "center");
+  }
+  if (toss) {
+    const c = toss.cat, t = toss.t, s = project(
+      toss.from[0] + (c.x + 0.6 - toss.from[0]) * t,
+      toss.from[1] + (0.2 - toss.from[1]) * t + Math.sin(t * Math.PI) * 1.2,
+      toss.from[2] + (c.z - toss.from[2]) * t);
+    if (s) { g.fillStyle = C.orange; const r = Math.max(2, Math.round(30 / s[2])); g.fillRect(s[0] - r / 2, s[1] - r / 2, r, r); }
+  }
+}
+
+function drawHUD() {
+  g.fillStyle = C.ink; g.fillRect(0, 0, W, 24);
+  text(`FED ${fed}`, 8, 7, C.cream, 2);
+  text(`WALLET ${fmt(Math.max(0, wallet))} MAD`, W / 2, 7, wallet < 2000 ? C.red : C.cream, 2, "center");
+  text(`${fmt(player.z)} M`, W - 8, 7, C.cream, 2, "right");
+  if (state === "play" && player.z < 4 && player.speed < 0.5 && Math.floor(time * 2) % 2 === 0)
+    textS("HOLD UP TO WALK", W / 2, H - 40, C.yellow, 3, "center");
+  if (seenNow && state === "play" && Math.floor(time * 4) % 2 === 0) {
+    g.fillStyle = C.red; g.fillRect(W / 2 - 100, H - 34, 200, 24);
+    text("THEY'RE WATCHING!", W / 2, H - 28, C.cream, 2, "center");
+  }
+}
+function panel(x, y, w, h, border) {
+  g.fillStyle = border; g.fillRect(x - 2, y - 2, w + 4, h + 4);
+  g.fillStyle = C.ink; g.fillRect(x, y, w, h);
+}
+
+function render() {
+  const p = player;
+  cam.x = p.x * 0.6; cam.y = CAM_UP + p.y * 0.3; cam.z = p.z - CAM_BACK;
+  drawSky();
+  drawGround();
+  const visible = segs.filter(s => s.z1 > cam.z && s.z0 < cam.z + VIEW).sort((a, b) => b.z0 - a.z0);
+  for (const s of visible) drawSeg(s);
+  drawCones();
+
+  const list = [];
+  for (const it of items) {
+    if (it.z < cam.z + 1 || it.z > cam.z + VIEW) continue;
+    if (it.type === "cop" && it.kind === "alley" && it.state === "hidden") continue;
+    list.push(it);
+  }
+  list.push(p);
+  list.sort((a, b) => b.z - a.z);
+  for (const it of list) {
+    if (it === p) drawPlayer(p);
+    else if (it.type === "cat") {
+      if (it === p.target) poly([[it.x - 0.9, 0.02, it.z], [it.x, 0.02, it.z - 0.9], [it.x + 0.9, 0.02, it.z], [it.x, 0.02, it.z + 0.9]], C.yellow, 1, 0.6);
+      drawCat(it);
+    } else if (it.type === "crate") drawCrate(it);
+    else if (it.type === "cart") drawCart(it);
+    else if (it.type === "cop") drawCop(it);
+    else if (it.type === "bunting") drawBunting(it);
+  }
+  drawOverlays3D();
+  drawHUD();
+
+  if (state === "title") {
+    panel(40, 38, W - 80, 200, C.yellow);
+    textS("FEED OR DON'T", W / 2, 50, C.yellow, 5, "center");
+    text("A STREET CAT RUNNER", W / 2, 84, C.cream, 2, "center");
+    [
+      "RUN THE MEDINA AND FEED THE STREET CATS.",
+      "POLICE WATCH FROM WINDOWS AND ALLEYS,",
+      "AND WALK OR CROSS THE STREET AHEAD OF YOU.",
+      "FED A CAT IN THEIR SIGHT? 500 TO 2,000 MAD FINE.",
+    ].forEach((l, i) => text(l, W / 2, 106 + i * 14, C.cream, 2, "center"));
+    text("HOLD UP: WALK   < >: LANE   SPACE: FEED", W / 2, 166, C.yellow, 2, "center");
+    text("SHIFT: JUMP   P: PAUSE   M: SOUND", W / 2, 180, C.yellow, 2, "center");
+    if (Math.floor(time * 2) % 2 === 0) textS("PRESS ENTER TO RUN", W / 2, 200, C.cream, 3, "center");
+    if (best) text(`BEST: ${best} CAT${best === 1 ? "" : "S"} FED`, W / 2, 224, C.cream, 1, "center");
+  } else if (state === "paused") {
+    panel(130, 90, 220, 70, C.yellow);
+    textS("PAUSED", W / 2, 102, C.cream, 4, "center");
+    text("PRESS P TO CONTINUE", W / 2, 138, C.yellow, 2, "center");
+  } else if (state === "caught") {
+    panel(60, 60, W - 120, 120, C.red);
+    textS("CAUGHT!", W / 2, 72, C.red, 6, "center");
+    text(`FINE: ${fmt(caught.fine)} MAD`, W / 2, 116, C.cream, 3, "center");
+    text(caught.reason, W / 2, 146, C.yellow, caught.reason.length > 34 ? 1 : 2, "center");
+    text("LAW 19.25", W / 2, 162, C.yellow, 1, "center");
+  } else if (state === "over") {
+    panel(30, 34, W - 60, 214, C.red);
+    textS(overReason, W / 2, 46, C.red, overReason.length > 24 ? 2 : 3, "center");
+    [`CATS FED: ${fed}`, `CATS MISSED: ${missed}`, `DISTANCE: ${fmt(player.z)} M`, `FINES PAID: ${fmt(finesPaid)} MAD`, `BEST: ${best} CAT${best === 1 ? "" : "S"} FED`]
+      .forEach((l, i) => text(l, W / 2, 76 + i * 16, C.cream, 2, "center"));
+    text("LAW 19.25 (2026): FEEDING STRAYS IN PUBLIC CAN COST", W / 2, 166, C.yellow, 1, "center");
+    text("500 TO 2,000 MAD. CARE IS MEANT TO GO THROUGH LICENSED CENTRES.", W / 2, 176, C.yellow, 1, "center");
+    if (Math.floor(time * 2) % 2 === 0) textS("PRESS ENTER TO RUN AGAIN", W / 2, 206, C.cream, 3, "center");
+  }
+
+  sctx.drawImage(buf, 0, 0, screen.width, screen.height);
+}
+
+// ---------- input ----------
+const held = { up: false };
+const isUp = k => k === "arrowup" || k === "w";
+addEventListener("keyup", e => { if (isUp(e.key.toLowerCase())) held.up = false; });
+addEventListener("keydown", e => {
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(e.key)) e.preventDefault();
+  audio();
+  const k = e.key.toLowerCase(), p = player;
+  if (isUp(k)) held.up = true;
+  if (e.repeat) return;
+  if (k === "enter" && (state === "title" || state === "over")) { reset(); state = "play"; sfx.start(); return; }
+  if ((k === "p" || k === "escape") && (state === "play" || state === "paused")) { state = state === "play" ? "paused" : "play"; return; }
+  if (k === "m") { muted = !muted; return; }
+  if (state !== "play") return;
+  if ((k === "arrowleft" || k === "a") && p.lane > 0) { p.lane--; sfx.lane(); }
+  else if ((k === "arrowright" || k === "d") && p.lane < 2) { p.lane++; sfx.lane(); }
+  else if ((k === "shift" || k === "j") && p.y === 0) { p.vy = 10; sfx.jump(); }
+  else if (k === " ") feedPressed = true;
+});
+addEventListener("blur", () => { held.up = false; if (state === "play") state = "paused"; });
+
+// ---------- loop ----------
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now; time += dt;
+  if (state === "play") update(dt);
+  else if (state === "caught" && (caught.t -= dt) <= 0) {
+    caught.w.state = "hidden"; caught.w.t = hiddenTime() + 1.5;
+    player.grace = 1.5;
+    if (wallet <= 0) gameOver("YOUR WALLET IS EMPTY"); else state = "play";
+  }
+  render();
+  requestAnimationFrame(frame);
+}
+reset();
+screen.focus();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

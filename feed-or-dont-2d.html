@@ -1,0 +1,649 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Feed or Don't 2D</title>
+<link rel="icon" href="data:,">
+<style>
+  html, body { margin: 0; height: 100%; background: #1d1712; }
+  body { display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  canvas { display: block; image-rendering: pixelated; image-rendering: crisp-edges; outline: none; }
+</style>
+</head>
+<body>
+<canvas id="screen" tabindex="0" aria-label="Feed or Don't, a retro street cat stealth game. Arrow keys walk, hold space to feed a cat, Enter starts, P pauses, M toggles sound."></canvas>
+<script>
+"use strict";
+// Game runs on a 320x180 pixel buffer, scaled up by a whole number to stay crisp.
+const W = 320, H = 180, WORLD = 2400;
+const STREET_Y = 166, CAT_Y = 146;
+const FEED_TIME = 1.2, FEED_RANGE = 16, START_WALLET = 6000, MAX_HUNGRY = 3;
+const CAFE_X = 1000, CAR_X = 1750;
+
+const C = {
+  sky: "#a9bfc9", sun: "#e9dcb8", far: "#c2a98a", far2: "#b3987a",
+  wallA: "#c9a27a", wallB: "#b98d68", wallC: "#d6bb9c", wallD: "#a9785a",
+  trim: "#e6d6bd", door: "#2f5a7f", shut: "#3f6f55", shutD: "#2e5240", dark: "#3a2e27",
+  walk: "#a8917a", walkD: "#8f7a65", curb: "#c4b29a", road: "#6f6157", roadD: "#5d5149",
+  ink: "#231c17", cream: "#efe4cf", red: "#a8463a", redL: "#d0715f", gold: "#c9a24e",
+  navy: "#2b3a55", ok: "#6f9a5a", car: "#8a4a3a", glass: "#7f98a6",
+  paper: "#e6e0d0", paperD: "#9a948a", wood: "#6a4a35", leaf: "#5f7f4a",
+  cone: "rgba(240, 226, 170, 0.2)", shade: "rgba(35, 28, 23, 0.22)", dim: "rgba(29, 23, 18, 0.74)",
+};
+
+const screen = document.getElementById("screen");
+const sctx = screen.getContext("2d");
+const buf = document.createElement("canvas");
+buf.width = W; buf.height = H;
+const g = buf.getContext("2d");
+
+function fit() {
+  const s = Math.max(1, Math.floor(Math.min(innerWidth / W, innerHeight / H)));
+  screen.width = W * s; screen.height = H * s;
+  sctx.imageSmoothingEnabled = false;
+}
+addEventListener("resize", fit);
+fit();
+
+// ---------- sprites ----------
+function sprite(rows, pal) {
+  const c = document.createElement("canvas");
+  c.width = rows[0].length; c.height = rows.length;
+  const x = c.getContext("2d");
+  rows.forEach((r, y) => [...r].forEach((ch, i) => {
+    if (pal[ch]) { x.fillStyle = pal[ch]; x.fillRect(i, y, 1, 1); }
+  }));
+  return c;
+}
+function draw(img, x, y, flip = false) {
+  x = Math.round(x); y = Math.round(y);
+  if (!flip) { g.drawImage(img, x, y); return; }
+  g.save(); g.translate(x + img.width, y); g.scale(-1, 1); g.drawImage(img, 0, 0); g.restore();
+}
+
+const PLAYER_PAL = { h: "#2a1f1a", s: "#c08a63", e: C.ink, j: "#7a4a5e", J: "#5f3a4a", p: "#4a4038", b: "#2a201a" };
+const PLAYER_TOP = [
+  "..hhhh..",
+  ".hhhhhh.",
+  ".hsssss.",
+  ".sssses.",
+  ".ssssss.",
+  "..ssss..",
+  ".jjjjjj.",
+  "jjjjjjjj",
+  "jjJjjJjj",
+  "sjjjjjjs",
+  ".jjjjjj.",
+  ".jjjjjj.",
+];
+const P1 = sprite([...PLAYER_TOP, ".pp..pp.", ".bb..bb."], PLAYER_PAL);
+const P2 = sprite([...PLAYER_TOP, "..pppp..", "..bbbb.."], PLAYER_PAL);
+
+const COP_PAL = { n: C.navy, b: C.gold, s: "#b98260", e: C.ink, u: "#3a4a68" };
+const COP_HEAD_ROWS = [
+  "..nnnn..",
+  ".nnnnnn.",
+  ".nbbbbn.",
+  "nnnnnnnn",
+  ".ssssss.",
+  ".sesses.",
+  ".ssssss.",
+  "..ssss..",
+];
+const COP_HEAD = sprite(COP_HEAD_ROWS, COP_PAL);
+const COP_CAP = sprite(COP_HEAD_ROWS.slice(0, 4), COP_PAL);
+const COP_BODY = sprite([...COP_HEAD_ROWS,
+  ".uuuuuu.",
+  "uuubuuuu",
+  "uuuuuuuu",
+  "s.uuuu.s",
+  "..uuuu..",
+  "..u..u..",
+  "..u..u..",
+  ".nn..nn.",
+], COP_PAL);
+
+const CAT_ROWS = [
+  "......k.k",
+  "......kkk",
+  "......kek",
+  "..kkkkkk.",
+  "k.kkkkkk.",
+  "k.kkkkk..",
+  ".kk.k.k..",
+];
+const CAT_IMGS = [
+  ["#c9803f", C.ink], ["#8a8580", C.ink], ["#3a3330", "#9aa65a"], ["#d9d0c2", C.ink], ["#a8744a", C.ink],
+].map(([k, e]) => sprite(CAT_ROWS, { k, e }));
+const HEART = sprite(["##.##", "#####", ".###.", "..#.."], { "#": "#b5524a" });
+
+// ---------- 3x5 pixel font (each digit is one row, bits = pixels) ----------
+const GLYPHS = {
+  A: "25755", B: "65656", C: "34443", D: "65556", E: "74647", F: "74644", G: "34553", H: "55755",
+  I: "72227", J: "11152", K: "55655", L: "44447", O: "25552", P: "65644",
+  Q: "25573", R: "65655", S: "34216", T: "72222", U: "55557", V: "55552", X: "55255",
+  Y: "55222", Z: "71247", 0: "75557", 1: "26227", 2: "61247", 3: "61216", 4: "55711", 5: "74616",
+  6: "34757", 7: "71122", 8: "75757", 9: "75711", ":": "02020", "!": "22202", ".": "00002",
+  ",": "00024", "-": "00700", "'": "22000", "?": "61202", "/": "11244", "+": "02720",
+  "(": "24442", ")": "42224", "<": "12421", ">": "42124", " ": "00000",
+};
+// M, N and W are unreadable at 3 pixels wide, so they get wider rows (bit masks).
+const WIDE = { M: [5, [17, 27, 21, 17, 17]], N: [4, [9, 13, 11, 9, 9]], W: [5, [17, 17, 21, 27, 17]] };
+const glyph = ch => WIDE[ch] || [3, [...(GLYPHS[ch] || "00000")].map(Number)];
+function text(s, x, y, col, sc = 1, align = "left") {
+  s = String(s).toUpperCase();
+  const w = ([...s].reduce((n, ch) => n + glyph(ch)[0] + 1, 0) - 1) * sc;
+  if (align === "center") x -= Math.floor(w / 2); else if (align === "right") x -= w;
+  g.fillStyle = col;
+  for (const ch of s) {
+    const [gw, rows] = glyph(ch);
+    for (let r = 0; r < 5; r++)
+      for (let c = 0; c < gw; c++) if (rows[r] & (1 << (gw - 1 - c))) g.fillRect(x + c * sc, y + r * sc, sc, sc);
+    x += (gw + 1) * sc;
+  }
+}
+function textS(s, x, y, col, sc = 1, align = "left") { text(s, x + 1, y + 1, C.ink, sc, align); text(s, x, y, col, sc, align); }
+const fmt = n => Math.round(n).toLocaleString("en-US");
+
+// ---------- sound (synthesized, no files) ----------
+let ac = null, master = null, noiseBuf = null, muted = false;
+function audio() {
+  try {
+    if (!ac) {
+      ac = new (window.AudioContext || window.webkitAudioContext)();
+      master = ac.createGain(); master.gain.value = 0.6; master.connect(ac.destination);
+      noiseBuf = ac.createBuffer(1, ac.sampleRate / 2, ac.sampleRate);
+      const d = noiseBuf.getChannelData(0);
+      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    if (ac.state === "suspended") ac.resume();
+  } catch (e) { console.warn("Audio unavailable:", e); }
+}
+function tone(f, dur, { type = "square", vol = 0.06, slide = 0, at = 0 } = {}) {
+  if (!ac || muted) return;
+  const t = ac.currentTime + at, o = ac.createOscillator(), gn = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(f, t);
+  if (slide) o.frequency.exponentialRampToValueAtTime(slide, t + dur);
+  gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(gn).connect(master); o.start(t); o.stop(t + dur + 0.02);
+}
+function hiss(dur, vol = 0.04, at = 0, hp = 1500) {
+  if (!ac || muted) return;
+  const t = ac.currentTime + at, s = ac.createBufferSource(), f = ac.createBiquadFilter(), gn = ac.createGain();
+  s.buffer = noiseBuf; f.type = "highpass"; f.frequency.value = hp;
+  gn.gain.setValueAtTime(vol, t); gn.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f).connect(gn).connect(master); s.start(t); s.stop(t + dur);
+}
+const sfx = {
+  step: () => hiss(0.035, 0.025, 0, 2500),
+  meow: () => { tone(620, 0.08, { type: "triangle", vol: 0.05, slide: 820 }); tone(820, 0.22, { type: "triangle", vol: 0.05, slide: 480, at: 0.08 }); },
+  fed: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.1, { vol: 0.04, at: i * 0.07 })),
+  warn: () => { tone(180, 0.07, { vol: 0.05 }); tone(150, 0.09, { vol: 0.05, at: 0.1 }); },
+  whistle: () => {
+    for (let i = 0; i < 10; i++) tone(i % 2 ? 2350 : 2100, 0.06, { vol: 0.035, at: i * 0.06 });
+    [440, 392, 330, 262].forEach((f, i) => tone(f, 0.14, { vol: 0.05, at: 0.75 + i * 0.12 }));
+  },
+  sad: () => tone(392, 0.45, { type: "triangle", vol: 0.05, slide: 196 }),
+  start: () => [294, 370, 440, 587].forEach((f, i) => tone(f, 0.1, { vol: 0.05, at: i * 0.08 })),
+};
+// Background loop in a Hijaz-flavoured scale (D Eb F# G A Bb C).
+const MELODY = [294, 370, 392, 440, 392, 370, 311, 294, 440, 466, 440, 392, 370, 392, 370, 0];
+let nextNote = 0, noteStep = 0;
+setInterval(() => {
+  if (!ac || muted || state !== "play") { nextNote = 0; return; }
+  if (nextNote < ac.currentTime) nextNote = ac.currentTime + 0.05;
+  while (nextNote < ac.currentTime + 0.25) {
+    const at = nextNote - ac.currentTime, f = MELODY[noteStep % 16];
+    if (f) tone(f, 0.16, { type: "triangle", vol: 0.03, at });
+    if (noteStep % 4 === 0) tone(noteStep % 8 === 0 ? 73.4 : 110, 0.3, { vol: 0.018, at });
+    nextNote += 0.2; noteStep++;
+  }
+}, 50);
+
+// ---------- world ----------
+function mulberry(a) {
+  return () => {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const hash = i => { const s = Math.sin(i * 12.9898) * 43758.5453; return s - Math.floor(s); };
+
+let buildings, alleys, watchers, cats, cafeCop, carCop;
+function makeWatcher(kind, x, eyeY, range) {
+  const w = { kind, x, eyeY, range, state: "hidden", t: 2 + Math.random() * 5, dur: 1 };
+  watchers.push(w);
+  return w;
+}
+function buildWorld() {
+  const rnd = mulberry(1925); // same street every game, so players can learn it
+  buildings = []; alleys = []; watchers = [];
+  const walls = [C.wallA, C.wallB, C.wallC, C.wallD], spots = [];
+  let x = -10;
+  while (x < WORLD + 10) {
+    const w = 60 + Math.floor(rnd() * 50), top = 44 + Math.floor(rnd() * 26);
+    const b = { x, w, top, col: walls[Math.floor(rnd() * walls.length)], door: x + 8 + Math.floor(rnd() * (w - 28)), windows: [] };
+    const n = w > 85 ? 2 : 1;
+    for (let i = 0; i < n; i++) {
+      const win = { x: x + Math.floor(w * (i + 1) / (n + 1)) - 5, y: top + 12, open: rnd() < 0.45, deco: rnd() < 0.5 ? "plant" : "cloth", cop: null };
+      b.windows.push(win); spots.push({ x: win.x + 5, win });
+    }
+    buildings.push(b); x += w;
+    if (rnd() < 0.35 && x < WORLD - 80) { const a = { x, cop: null }; alleys.push(a); spots.push({ x: x + 8, alley: a }); x += 16; }
+  }
+  spots.sort((a, b) => a.x - b.x);
+  let last = 120; // keep the start of the street quiet so the first cat is a safe tutorial
+  for (const s of spots) {
+    if (s.x - last < 200 || Math.abs(s.x - CAFE_X) < 120 || Math.abs(s.x - CAR_X) < 120 || rnd() < 0.3) continue;
+    if (s.win) { s.win.cop = makeWatcher("window", s.x, s.win.y + 6, 70); s.win.open = false; }
+    else s.alley.cop = makeWatcher("alley", s.x, 112, 56);
+    last = s.x;
+  }
+  cafeCop = makeWatcher("cafe", CAFE_X - 10, 124, 80);
+  carCop = makeWatcher("car", CAR_X, 120, 64);
+}
+
+function spawnCat(x) {
+  cats.push({
+    x, img: CAT_IMGS[Math.floor(Math.random() * CAT_IMGS.length)], flip: Math.random() < 0.5,
+    hunger: 0.25 + Math.random() * 0.35, rate: 1 / (60 + Math.random() * 30),
+    hearts: 0, eatT: 0, meowT: 3 + Math.random() * 6, bubble: 0,
+  });
+}
+function freeSpot() {
+  for (let i = 0; i < 60; i++) {
+    const x = 150 + Math.random() * (WORLD - 220);
+    if (cats.every(c => Math.abs(c.x - x) > 90) && Math.abs(x - CAFE_X) > 36 && Math.abs(x - CAR_X) > 36) return x;
+  }
+  return 150 + Math.random() * (WORLD - 220);
+}
+
+// ---------- game state ----------
+let state = "title", player, wallet, fed, finesPaid, hungry, playTime, toasts = [], respawns, caught, overReason = "";
+let best = 0;
+try { best = +localStorage.getItem("feed-or-dont-best") || 0; } catch (e) { /* storage blocked: best stays 0 */ }
+
+function reset() {
+  buildWorld();
+  cats = [];
+  spawnCat(140);
+  for (let i = 0; i < 6; i++) spawnCat(freeSpot());
+  player = { x: 60, dir: 1, walkT: 0, stepT: 0, moving: false, feeding: null, feedT: 0, grace: 0, target: null };
+  wallet = START_WALLET; fed = 0; finesPaid = 0; hungry = 0; playTime = 0; respawns = []; caught = null;
+}
+function toast(s) { toasts = [{ text: s, t: 2.2 }]; }
+
+const hiddenTime = () => (2.5 + Math.random() * 4) * Math.max(0.45, 1 - fed * 0.025);
+const warnTime = () => Math.max(0.5, 1.3 - fed * 0.03);
+const watchTime = () => 1.8 + Math.random() * 1.8;
+
+function feedableCat() {
+  let best = null, bd = FEED_RANGE;
+  for (const c of cats) {
+    const d = Math.abs(c.x - player.x);
+    if (d < bd && c.hunger > 0.05) { bd = d; best = c; }
+  }
+  return best;
+}
+
+// The cone is drawn from the eye to y=179; catch only inside its width at the player's feet.
+const coneHalfWidthAtPlayer = w => w.range * (STREET_Y - w.eyeY) / (179 - w.eyeY);
+
+function bust(w) {
+  const fine = 500 + Math.floor(Math.random() * 16) * 100; // 500 to 2,000 MAD, the range in Law 19.25
+  wallet -= fine; finesPaid += fine;
+  caught = { fine, t: 2.4, w };
+  player.feeding = null; player.feedT = 0;
+  state = "caught";
+  sfx.whistle();
+}
+
+function gameOver(reason) {
+  overReason = reason; state = "over";
+  if (fed > best) { best = fed; try { localStorage.setItem("feed-or-dont-best", String(best)); } catch (e) { /* ignore */ } }
+}
+
+function update(dt) {
+  playTime += dt;
+  const p = player;
+
+  for (const w of watchers) {
+    w.t -= dt;
+    if (w.t > 0) continue;
+    if (w.state === "hidden") { w.state = "warn"; w.t = w.dur = warnTime(); if (Math.abs(w.x - p.x) < 170) sfx.warn(); }
+    else if (w.state === "warn") { w.state = "watch"; w.t = w.dur = watchTime(); }
+    else { w.state = "hidden"; w.t = hiddenTime(); }
+  }
+
+  p.grace = Math.max(0, p.grace - dt);
+  p.target = feedableCat();
+  p.moving = false;
+  if (keys.feed && p.target) {
+    if (p.feeding !== p.target) { p.feeding = p.target; p.feedT = 0; }
+    p.feedT += dt;
+    p.dir = p.target.x > p.x ? 1 : -1;
+    if (p.feedT >= FEED_TIME) {
+      const c = p.target;
+      c.hunger = 0; c.hearts = 1.2; c.eatT = 4; fed++;
+      p.feeding = null; p.feedT = 0;
+      sfx.fed();
+    }
+  } else {
+    p.feeding = null; p.feedT = 0;
+    const mv = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+    if (mv) {
+      p.dir = mv; p.moving = true;
+      p.x = Math.min(WORLD - 8, Math.max(8, p.x + mv * 62 * dt));
+      p.walkT += dt; p.stepT -= dt;
+      if (p.stepT <= 0) { sfx.step(); p.stepT = 0.28; }
+    }
+  }
+
+  if (p.feeding && p.grace === 0) {
+    const w = watchers.find(w => w.state === "watch" && Math.abs(w.x - p.x) < coneHalfWidthAtPlayer(w));
+    if (w) { bust(w); return; }
+  }
+
+  for (const c of cats) {
+    c.hunger += c.rate * dt;
+    c.hearts = Math.max(0, c.hearts - dt);
+    c.eatT = Math.max(0, c.eatT - dt);
+    c.bubble = Math.max(0, c.bubble - dt);
+    if (c.hunger > 0.75 && (c.meowT -= dt) <= 0) {
+      c.meowT = 4 + Math.random() * 4; c.bubble = 1;
+      if (Math.abs(c.x - p.x) < 170) sfx.meow();
+    }
+  }
+  const lost = cats.filter(c => c.hunger >= 1);
+  if (lost.length) {
+    cats = cats.filter(c => c.hunger < 1);
+    hungry += lost.length;
+    lost.forEach(() => respawns.push(6));
+    sfx.sad();
+    if (hungry >= MAX_HUNGRY) { gameOver("THREE CATS WENT HUNGRY"); return; }
+    toast("A CAT WENT HUNGRY AND LEFT");
+  }
+  respawns = respawns.map(t => t - dt);
+  while (respawns.length && respawns[0] <= 0) { respawns.shift(); spawnCat(freeSpot()); }
+}
+
+// ---------- drawing ----------
+let time = 0;
+const blink = (hz) => Math.floor(time * hz) % 2 === 0;
+
+function drawSky(cam) {
+  g.fillStyle = C.sky; g.fillRect(0, 0, W, H);
+  g.fillStyle = C.sun; g.fillRect(252, 24, 8, 14); g.fillRect(250, 26, 12, 10);
+  const fx = Math.round(cam * 0.3);
+  for (let i = Math.floor(fx / 22) - 1; i * 22 - fx < W; i++) {
+    const h = hash(i), sx = i * 22 - fx;
+    g.fillStyle = h < 0.5 ? C.far : C.far2;
+    g.fillRect(sx, 40 + Math.floor(h * 20), 22, 100);
+    if (((i % 17) + 17) % 17 === 0) { // minaret
+      g.fillStyle = C.far2;
+      g.fillRect(sx + 6, 16, 10, 100); g.fillRect(sx + 5, 14, 12, 3);
+      g.fillRect(sx + 8, 8, 6, 6); g.fillRect(sx + 10, 4, 2, 4);
+    }
+  }
+}
+
+function arch(x, y, w, h, col) {
+  g.fillStyle = col;
+  g.fillRect(x, y + 3, w, h - 3); g.fillRect(x + 1, y + 1, w - 2, 2); g.fillRect(x + 3, y, w - 6, 1);
+}
+function shutter(x, y) {
+  g.fillStyle = C.shut; g.fillRect(x, y, 5, 12);
+  g.fillStyle = C.shutD; for (let k = 2; k < 12; k += 3) g.fillRect(x, y + k, 5, 1);
+}
+function drawWindow(win, cam) {
+  const x = win.x - cam, y = win.y, cop = win.cop;
+  g.fillStyle = C.trim; g.fillRect(x - 1, y - 1, 12, 14);
+  g.fillStyle = C.dark; g.fillRect(x, y, 10, 12);
+  const open = cop ? cop.state === "watch" : win.open;
+  if (cop && cop.state === "watch") draw(COP_HEAD, x + 1, y + 3);
+  if (open) {
+    shutter(x - 5, y); shutter(x + 10, y);
+    if (!cop && win.deco === "plant") {
+      g.fillStyle = C.leaf; g.fillRect(x + 1, y + 8, 8, 3);
+      g.fillStyle = C.red; g.fillRect(x + 2, y + 11, 6, 3);
+    }
+  } else {
+    const j = cop && cop.state === "warn" && blink(16) ? 1 : 0; // rattling shutters
+    shutter(x - j, y); shutter(x + 5 + j, y);
+  }
+  g.fillStyle = C.trim; g.fillRect(x - 2, y + 12, 14, 1);
+  if (!cop && win.open && win.deco === "cloth") {
+    g.fillStyle = C.ink; g.fillRect(x - 6, y + 15, 22, 1);
+    g.fillStyle = C.glass; g.fillRect(x - 4, y + 16, 4, 5);
+    g.fillStyle = C.cream; g.fillRect(x + 2, y + 16, 5, 4);
+    g.fillStyle = C.redL; g.fillRect(x + 9, y + 16, 4, 6);
+  }
+}
+function drawBuilding(b, cam) {
+  const x = b.x - cam;
+  g.fillStyle = b.col;
+  g.fillRect(x, b.top, b.w, 140 - b.top);
+  for (let i = 2; i < b.w - 4; i += 8) g.fillRect(x + i, b.top - 3, 4, 3);
+  g.fillStyle = C.shade; g.fillRect(x, b.top, b.w, 2); g.fillRect(x + b.w - 1, b.top, 1, 140 - b.top);
+  for (let i = 0; i < b.w; i += 4) { // zellige tile band
+    const odd = (i / 4) % 2;
+    g.fillStyle = odd ? C.shut : C.trim; g.fillRect(x + i, 134, 4, 3);
+    g.fillStyle = odd ? C.trim : C.shut; g.fillRect(x + i, 137, 4, 3);
+  }
+  const dx = b.door - cam;
+  arch(dx - 2, 116, 16, 24, C.trim);
+  arch(dx, 118, 12, 22, C.door);
+  g.fillStyle = C.gold; g.fillRect(dx + 8, 129, 1, 2);
+  for (const win of b.windows) drawWindow(win, cam);
+}
+function drawAlley(a, cam) {
+  const x = a.x - cam, cop = a.cop;
+  g.fillStyle = C.dark; g.fillRect(x, 76, 16, 64);
+  g.fillStyle = C.trim; g.fillRect(x - 2, 72, 20, 4);
+  if (!cop) return;
+  if (cop.state === "warn" && blink(6)) { g.fillStyle = C.gold; g.fillRect(x + 6, 110, 1, 1); g.fillRect(x + 9, 110, 1, 1); }
+  if (cop.state === "watch") draw(COP_BODY, x + 4, 124);
+}
+function drawGround(cam) {
+  g.fillStyle = C.walk; g.fillRect(0, 140, W, 8);
+  g.fillStyle = C.walkD; for (let i = -(cam % 12); i < W; i += 12) g.fillRect(i, 140, 1, 7);
+  g.fillStyle = C.curb; g.fillRect(0, 147, W, 2);
+  g.fillStyle = C.road; g.fillRect(0, 149, W, 31);
+  g.fillStyle = C.roadD;
+  for (let row = 0; row < 6; row++) {
+    const off = (row % 2) * 4;
+    for (let i = -((cam + off) % 8); i < W; i += 8) g.fillRect(i, 151 + row * 5, 5, 1);
+  }
+}
+function drawCafe(cam) {
+  const x = CAFE_X - cam, w = cafeCop;
+  if (x < -60 || x > W + 60) return;
+  for (let i = 0; i < 48; i += 6) {
+    g.fillStyle = (i / 6) % 2 ? C.cream : C.red;
+    g.fillRect(x - 24 + i, 100, 6, 6); g.fillRect(x - 23 + i, 106, 4, 1);
+  }
+  g.fillStyle = C.wood; g.fillRect(x - 24, 106, 1, 34); g.fillRect(x + 23, 106, 1, 34);
+  g.fillStyle = C.ink; g.fillRect(x - 15, 132, 2, 8);
+  g.fillStyle = COP_PAL.u; g.fillRect(x - 14, 128, 8, 8);
+  draw(COP_HEAD, x - 14, 120);
+  if (w.state !== "watch") { // newspaper slowly lowers during the warning
+    const drop = w.state === "warn" ? Math.floor((1 - w.t / w.dur) * 6) : 0;
+    g.fillStyle = C.paper; g.fillRect(x - 17, 120 + drop, 13, 10);
+    g.fillStyle = C.paperD;
+    g.fillRect(x - 15, 122 + drop, 9, 1); g.fillRect(x - 15, 124 + drop, 6, 1); g.fillRect(x - 15, 126 + drop, 9, 1);
+  }
+  g.fillStyle = C.wood; g.fillRect(x - 4, 132, 14, 2); g.fillRect(x + 2, 134, 2, 6);
+  g.fillStyle = "#6f9a7a"; g.fillRect(x + 6, 129, 2, 3);
+  if (w.state === "watch") { g.fillStyle = C.paper; g.fillRect(x - 3, 130, 7, 2); }
+}
+function drawCar(cam) {
+  const x = CAR_X - cam, w = carCop;
+  if (x < -60 || x > W + 60) return;
+  if (w.state === "warn") draw(COP_CAP, x - 4, 123);
+  if (w.state === "watch") draw(COP_HEAD, x - 4, 118);
+  g.fillStyle = C.car; g.fillRect(x - 16, 132, 34, 8); g.fillRect(x - 9, 126, 20, 6);
+  g.fillStyle = C.glass; g.fillRect(x - 7, 127, 7, 4); g.fillRect(x + 2, 127, 7, 4);
+  g.fillStyle = C.ink; g.fillRect(x - 11, 138, 6, 4); g.fillRect(x + 7, 138, 6, 4);
+  g.fillStyle = C.gold; g.fillRect(x + 17, 134, 1, 2);
+}
+function drawCat(c, cam) {
+  const x = Math.round(c.x - cam);
+  if (x < -20 || x > W + 20) return;
+  if (c.eatT > 0) {
+    const bx = c.flip ? x - 9 : x + 4;
+    g.fillStyle = C.paperD; g.fillRect(bx, 144, 6, 2);
+    g.fillStyle = "#a8744a"; g.fillRect(bx + 1, 143, 4, 1);
+  }
+  const bob = c.eatT > 0 && blink(4) ? 1 : 0;
+  draw(c.img, x - 4, CAT_Y - 7 + bob, c.flip);
+
+  g.fillStyle = C.ink; g.fillRect(x - 5, CAT_Y - 11, 10, 2);
+  g.fillStyle = c.hunger < 0.5 ? C.ok : c.hunger < 0.8 ? C.gold : C.red;
+  if (!(c.hunger > 0.85 && !blink(4))) g.fillRect(x - 5, CAT_Y - 11, Math.max(1, Math.round((1 - c.hunger) * 10)), 2);
+
+  if (c.hearts > 0) draw(HEART, x - 2, CAT_Y - 19 - (1.2 - c.hearts) * 8);
+  const p = player;
+  if (p.feeding === c) {
+    g.fillStyle = C.ink; g.fillRect(x - 6, CAT_Y - 16, 12, 3);
+    g.fillStyle = C.cream; g.fillRect(x - 5, CAT_Y - 15, Math.round(10 * p.feedT / FEED_TIME), 1);
+  } else if (p.target === c && state === "play") {
+    textS("HOLD SPACE", x, CAT_Y - 19, C.cream, 1, "center");
+  } else if (c.bubble > 0) {
+    textS("MEOW", x, CAT_Y - 19, C.cream, 1, "center");
+  }
+}
+function drawPlayer(cam) {
+  const p = player, x = Math.round(p.x - cam);
+  if (p.grace > 0 && blink(10)) return;
+  draw(p.moving && blink(8) ? P2 : P1, x - 4, STREET_Y - 14, p.dir < 0);
+  g.fillStyle = "#8a6a3f"; g.fillRect(p.dir > 0 ? x + 4 : x - 7, STREET_Y - 6, 3, 4);
+  if (p.feeding) { // crumbs falling toward the cat
+    const t = (time * 3) % 1, cx = p.feeding.x - cam;
+    g.fillStyle = "#a8744a";
+    g.fillRect(Math.round(x + p.dir * 5 + (cx - x - p.dir * 5) * t), Math.round(STREET_Y - 6 + (CAT_Y - 1 - STREET_Y + 6) * t), 1, 1);
+  }
+}
+function drawWatchCues(cam) {
+  for (const w of watchers) {
+    const x = w.x - cam;
+    if (x < -w.range || x > W + w.range) continue;
+    if (w.state === "watch") {
+      g.fillStyle = C.cone;
+      g.beginPath(); g.moveTo(x, w.eyeY); g.lineTo(x - w.range, 179); g.lineTo(x + w.range, 179); g.closePath(); g.fill();
+    } else if (w.state === "warn" && blink(5)) {
+      textS("!", x - 1, w.eyeY - 18, C.gold, 2);
+    }
+  }
+}
+function drawHUD(cam) {
+  g.fillStyle = C.ink; g.fillRect(0, 0, W, 19);
+  text(`FED ${fed}`, 6, 3, C.cream);
+  text(`WALLET ${fmt(Math.max(0, wallet))} MAD`, W / 2, 3, wallet < 2000 ? C.redL : C.cream, 1, "center");
+  text(`HUNGRY ${hungry}/${MAX_HUNGRY}`, W - 6, 3, hungry ? C.redL : C.cream, 1, "right");
+  const mx = v => 8 + Math.round(v / WORLD * (W - 17));
+  g.fillStyle = "#3a2f27"; g.fillRect(8, 12, W - 16, 3);
+  g.fillStyle = "rgba(239, 228, 207, 0.2)"; g.fillRect(mx(cam), 12, mx(cam + W) - mx(cam), 3);
+  for (const c of cats) { g.fillStyle = c.hunger < 0.5 ? C.ok : c.hunger < 0.8 ? C.gold : C.red; g.fillRect(mx(c.x) - 1, 12, 2, 3); }
+  g.fillStyle = C.cream; g.fillRect(mx(player.x), 11, 1, 5);
+}
+function panel(x, y, w, h, border) {
+  g.fillStyle = border; g.fillRect(x - 1, y - 1, w + 2, h + 2);
+  g.fillStyle = C.ink; g.fillRect(x, y, w, h);
+}
+function render() {
+  const cam = Math.round(Math.min(WORLD - W, Math.max(0, player.x - W / 2)));
+  drawSky(cam);
+  for (const a of alleys) if (a.x - cam > -20 && a.x - cam < W) drawAlley(a, cam);
+  for (const b of buildings) if (b.x - cam < W && b.x + b.w - cam > 0) drawBuilding(b, cam);
+  drawGround(cam);
+  drawCafe(cam);
+  drawCar(cam);
+  for (const c of cats) drawCat(c, cam);
+  drawPlayer(cam);
+  drawWatchCues(cam);
+  drawHUD(cam);
+  if (toasts.length) textS(toasts[0].text, W / 2, 25, C.cream, 1, "center");
+
+  if (state === "title") {
+    g.fillStyle = C.dim; g.fillRect(0, 0, W, H);
+    textS("FEED OR DON'T", W / 2, 26, C.cream, 3, "center");
+    text("A STREET CAT STEALTH GAME", W / 2, 48, C.gold, 1, "center");
+    const lines = [
+      "FEED THE STREET CATS BEFORE THEY GO HUNGRY.",
+      "POLICE WATCH FROM WINDOWS, ALLEYS, THE CAFE AND A CAR.",
+      "IF THEY SEE YOU FEEDING, YOU PAY A 500 TO 2,000 MAD FINE.",
+      "WATCH FOR WARNINGS: RATTLING SHUTTERS, EYES, A NEWSPAPER.",
+    ];
+    lines.forEach((l, i) => text(l, W / 2, 66 + i * 10, C.cream, 1, "center"));
+    text("< > WALK   HOLD SPACE FEED   P PAUSE   M SOUND", W / 2, 118, C.gold, 1, "center");
+    if (blink(2)) textS("PRESS ENTER TO START", W / 2, 136, C.cream, 2, "center");
+    if (best) text(`BEST: ${best} CAT${best === 1 ? "" : "S"} FED`, W / 2, 162, C.paperD, 1, "center");
+  } else if (state === "paused") {
+    g.fillStyle = C.dim; g.fillRect(0, 0, W, H);
+    textS("PAUSED", W / 2, 70, C.cream, 3, "center");
+    text("PRESS P TO CONTINUE", W / 2, 96, C.gold, 1, "center");
+  } else if (state === "caught") {
+    panel(56, 48, 208, 74, C.red);
+    textS("CAUGHT!", W / 2, 56, C.redL, 3, "center");
+    text(`FINE: ${fmt(caught.fine)} MAD`, W / 2, 82, C.cream, 2, "center");
+    text("FEEDING STRAYS IN PUBLIC, LAW 19.25", W / 2, 104, C.gold, 1, "center");
+  } else if (state === "over") {
+    g.fillStyle = C.dim; g.fillRect(0, 0, W, H);
+    textS(overReason, W / 2, 26, C.redL, 2, "center");
+    const m = Math.floor(playTime / 60), s = String(Math.floor(playTime % 60)).padStart(2, "0");
+    [`CATS FED: ${fed}`, `FINES PAID: ${fmt(finesPaid)} MAD`, `TIME ON THE STREET: ${m}:${s}`, `BEST: ${best} CAT${best === 1 ? "" : "S"}`]
+      .forEach((l, i) => text(l, W / 2, 50 + i * 11, C.cream, 1, "center"));
+    text("LAW 19.25 (2026): FEEDING STRAYS IN PUBLIC CAN COST", W / 2, 106, C.gold, 1, "center");
+    text("500 TO 2,000 MAD. CARE IS MEANT TO GO THROUGH LICENSED CENTRES.", W / 2, 116, C.gold, 1, "center");
+    if (blink(2)) textS("PRESS ENTER TO PLAY AGAIN", W / 2, 140, C.cream, 2, "center");
+  }
+
+  sctx.drawImage(buf, 0, 0, screen.width, screen.height);
+}
+
+// ---------- input ----------
+const keys = { left: false, right: false, feed: false };
+function setKey(e, down) {
+  const k = e.key;
+  if (k === "ArrowLeft" || k === "a" || k === "A") keys.left = down;
+  else if (k === "ArrowRight" || k === "d" || k === "D") keys.right = down;
+  else if (k === " ") keys.feed = down;
+}
+addEventListener("keydown", e => {
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", " "].includes(e.key)) e.preventDefault();
+  audio();
+  setKey(e, true);
+  if (e.repeat) return;
+  const k = e.key.toLowerCase();
+  if (k === "enter" && (state === "title" || state === "over")) { reset(); state = "play"; sfx.start(); }
+  else if ((k === "p" || k === "escape") && (state === "play" || state === "paused")) state = state === "play" ? "paused" : "play";
+  else if (k === "m") { muted = !muted; toast(muted ? "SOUND OFF" : "SOUND ON"); }
+});
+addEventListener("keyup", e => setKey(e, false));
+addEventListener("blur", () => { keys.left = keys.right = keys.feed = false; if (state === "play") state = "paused"; });
+
+// ---------- loop ----------
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now; time += dt;
+  if (state === "play") update(dt);
+  else if (state === "caught" && (caught.t -= dt) <= 0) {
+    caught.w.state = "hidden"; caught.w.t = hiddenTime() + 1.5;
+    player.grace = 1.5;
+    if (wallet <= 0) gameOver("YOUR WALLET IS EMPTY"); else state = "play";
+  }
+  for (const t of toasts) t.t -= dt;
+  toasts = toasts.filter(t => t.t > 0);
+  render();
+  requestAnimationFrame(frame);
+}
+reset();
+screen.focus();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
