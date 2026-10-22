@@ -37,3 +37,8 @@ Feeding, bust and fine, safe just outside the cone, three-hungry game over, titl
 - Score = feed points (100 + 20 per streak step, cap 10) * mult + distance/2 * mult. TITLES thresholds 0/400/1200/2500/5000/9000.
 - Leaderboard: localStorage `feed-or-dont-board-v1`, entries validated on load, names stripped of control chars and < >, rendered with textContent. Verified a hostile name renders as text.
 - Headless screenshots time out on GPU-less browser; capture via renderer.domElement.toDataURL right after render instead.
+
+## v0.6.0: phones
+- TOUCH = pointer:coarse or maxTouchPoints; body.touch shows #touchUI and touch help, lowers pixel ratio/shadows/fog.
+- Walking input = held.up || touchWalk || tiltWalk. Swipes re-arm inside one drag. Tilt maps beta/gamma by screen orientation angle, calibrated to the pose when tilt is switched on; iOS needs DeviceOrientationEvent.requestPermission from a tap, and HTTPS.
+- GitHub Pages serves the repo root; index.html redirects to feed-or-dont.html.

@@ -86,6 +86,37 @@
   .intro-nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
   button.ghost { background: transparent; color: var(--ink); border: 2px solid var(--line); }
   .start-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  /* ---------- phones and touch screens ---------- */
+  html, body { overscroll-behavior: none; }
+  canvas { touch-action: none; }
+  button { touch-action: manipulation; }
+  #touchUI { display: none; }
+  body.touch.playing #touchUI { display: block; }
+  body.touch #camtip { display: none; }
+  .touch-only { display: none !important; }
+  body.touch .touch-only { display: grid !important; }
+  body.touch .key-only { display: none !important; }
+  #feedBtn { position: fixed; right: 18px; bottom: 24px; width: 112px; height: 112px; margin: 0; padding: 0; border-radius: 50%; font-size: 24px; background: var(--red); opacity: 0.6; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25); touch-action: none; }
+  #feedBtn.ready { opacity: 1; background: var(--blue); }
+  .tbtn { position: fixed; top: 70px; margin: 0; padding: 9px 14px; font-size: 15px; border-radius: 12px; background: rgba(42, 29, 22, 0.8); }
+  #tiltBtn { left: 12px; }
+  #camBtn { right: 104px; }
+  #pauseBtn { right: 12px; }
+  @media (max-width: 700px) {
+    #hud { top: 8px; left: 8px; right: 8px; gap: 6px; }
+    .pill { font-size: 16px; padding: 7px 12px; }
+    .pill span { font-size: 11px; margin-right: 5px; }
+    .pill em, .pill .sep, #dist { display: none; }
+    .card { padding: 22px 20px; border-radius: 18px; }
+    .card h1 { font-size: 44px; }
+    .card h2, .card.intro h2 { font-size: 30px; }
+    .card p, .card.intro p { font-size: 17px; }
+    .levels { flex-direction: column; }
+    #banner { font-size: 19px; bottom: 150px; padding: 10px 18px; }
+    #hint { font-size: 22px; bottom: 160px; width: 90%; text-align: center; }
+    .big-score { font-size: 40px; }
+    #toast { font-size: 18px; top: 116px; }
+  }
 </style>
 </head>
 <body>
@@ -98,6 +129,12 @@
 <div id="banner" role="status">They're watching you</div>
 <div id="hint">Hold &uarr; to walk</div>
 <div id="camtip" class="pill"><kbd>C</kbd> First person</div>
+<div id="touchUI">
+  <button id="feedBtn" aria-label="Feed the cat ahead">Feed</button>
+  <button class="tbtn" id="tiltBtn">Tilt: off</button>
+  <button class="tbtn" id="camBtn">Camera</button>
+  <button class="tbtn" id="pauseBtn">Pause</button>
+</div>
 
 <div class="overlay show" id="introCard">
   <div class="card intro" role="dialog" aria-labelledby="introH" aria-live="polite">
@@ -113,10 +150,15 @@
     <div>
       <h1 id="titleH">Feed or Don't</h1>
       <p>Walk the medina and feed the street cats. Police watch from windows and alleys and walk the street, and security cameras film it. Feed a cat while anyone is watching and you pay a fine of 500 to 2,000 MAD.</p>
-      <div class="keys">
+      <div class="keys key-only">
         <kbd>&uarr;</kbd><span>Hold to walk</span><kbd>Space</kbd><span>Feed a cat</span>
         <span><kbd>&larr;</kbd> <kbd>&rarr;</kbd></span><span>Change lane</span><kbd>Shift</kbd><span>Jump</span>
         <kbd>C</kbd><span>Switch camera</span><kbd>P</kbd><span>Pause</span>
+      </div>
+      <div class="keys touch-only">
+        <kbd>Hold</kbd><span>Walk</span><kbd>Swipe</kbd><span>Change lane</span>
+        <kbd>Swipe up</kbd><span>Jump</span><kbd>Feed</kbd><span>Feed a cat</span>
+        <kbd>Tilt</kbd><span>Steer by leaning the phone</span>
       </div>
       <div class="levels" role="radiogroup" aria-label="Difficulty">
         <button class="lvl" role="radio" data-level="easy">1 Easy<small>Fewer watchers, 1x points</small></button>
@@ -129,7 +171,7 @@
   </div>
 </div>
 <div class="overlay" id="pauseCard">
-  <div class="card" role="dialog"><h2>Paused</h2><p>Press <kbd>P</kbd> to keep walking.</p></div>
+  <div class="card" role="dialog"><h2>Paused</h2><p class="key-only">Press <kbd>P</kbd> to keep walking.</p><button id="resumeBtn">Keep walking</button></div>
 </div>
 <div class="overlay" id="caughtCard">
   <div class="card" role="alertdialog"><h2>Caught!</h2><div class="fine" id="fineAmt"></div><p id="fineWhy"></p><p class="law">Law 19.25: feeding stray animals in public</p></div>
@@ -164,7 +206,8 @@
 // Units are metres. Game logic uses z = distance walked; Three.js uses -z as forward, see at().
 const LANES = [-2.6, 0, 2.6], STREET = 4.2, FACE = 6, VIEW = 110, CHUNK = 20;
 const START_WALLET = 6000;
-const MAX_SPEED = 6.5, ACCEL = 9, BRAKE = 14; // you only move while holding UP
+const MAX_SPEED = 6.5, ACCEL = 9, BRAKE = 14; // you only move while holding UP (or a thumb, or tilting)
+const TOUCH = matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0;
 
 const WALLS = ["#e2734a", "#f0a73a", "#d9686a", "#f3e7d3", "#3d7bd9", "#e89a5c"];
 const DOORS = ["#2f5fd0", "#18a06a", "#f2a922", "#d63a3a"];
@@ -184,7 +227,7 @@ const PAL = {
 
 // ---------- renderer, scene, lights ----------
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(devicePixelRatio, TOUCH ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.prepend(renderer.domElement);
@@ -193,14 +236,14 @@ renderer.domElement.tabIndex = 0;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(PAL.sky);
-scene.fog = new THREE.Fog(PAL.haze, 55, 135);
+scene.fog = new THREE.Fog(PAL.haze, TOUCH ? 45 : 55, TOUCH ? 110 : 135);
 const camera = new THREE.PerspectiveCamera(58, 16 / 9, 0.1, 400);
 
 // Strong sky fill so the facades facing away from the sun stay colourful.
 scene.add(new THREE.HemisphereLight("#e4f2ff", "#e0b68a", 0.9), new THREE.AmbientLight("#ffffff", 0.15));
 const sun = new THREE.DirectionalLight("#fff3dd", 0.75);
 sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.mapSize.set(TOUCH ? 1024 : 2048, TOUCH ? 1024 : 2048);
 Object.assign(sun.shadow.camera, { left: -18, right: 18, top: 22, bottom: -22, near: 1, far: 90 });
 sun.shadow.bias = -0.0008;
 scene.add(sun, sun.target);
@@ -265,7 +308,7 @@ const TEX = {
   }),
   prompt: canvasTex(256, 96, (x) => {
     x.fillStyle = "#2f5fd0"; x.beginPath(); x.roundRect ? x.roundRect(4, 4, 248, 88, 44) : x.rect(4, 4, 248, 88); x.fill();
-    x.fillStyle = "#fff"; x.font = "800 50px Segoe UI, system-ui, sans-serif"; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText("SPACE", 128, 50);
+    x.fillStyle = "#fff"; x.font = `800 ${TOUCH ? 40 : 50}px Segoe UI, system-ui, sans-serif`; x.textAlign = "center"; x.textBaseline = "middle"; x.fillText(TOUCH ? "TAP FEED" : "SPACE", 128, 50);
   }),
 };
 TEX.pavers.repeat.set(4, CHUNK / 2.1);
@@ -851,7 +894,7 @@ function crash(what) { sfx.crash(); gameOver(`You walked into ${what}`); }
 
 function update(dt) {
   const p = player;
-  const target = held.up ? MAX_SPEED : 0;
+  const target = held.up || touchWalk || tiltWalk ? MAX_SPEED : 0;
   p.speed = target > p.speed ? Math.min(target, p.speed + ACCEL * dt) : Math.max(target, p.speed - BRAKE * dt);
   p.z += p.speed * dt;
   p.runT += p.speed * dt;
@@ -1018,7 +1061,7 @@ function sync(dt) {
   camLook.lerpVectors(tmpA, tmpB, camBlend);
   camera.position.copy(camPos);
   camera.lookAt(camLook);
-  const fov = 58 + 14 * camBlend;
+  const fov = (camera.aspect < 1 ? 74 : 58) + 14 * camBlend; // wider view in portrait
   if (Math.abs(camera.fov - fov) > 0.05) { camera.fov = fov; camera.updateProjectionMatrix(); }
 
   at(sun, p.x - 10, 24, p.z - 4);
@@ -1145,6 +1188,8 @@ function updateUI() {
   setText("dist", `${fmt(player.z)} m`);
   $("banner").style.display = seenNow && state === "play" ? "block" : "none";
   $("hint").style.display = state === "play" && player.z < 3 && player.speed < 0.5 ? "block" : "none";
+  document.body.classList.toggle("playing", state === "play");
+  $("feedBtn").classList.toggle("ready", !!player.target);
   setText("camtip", camMode ? "C  Third person" : "C  First person");
   if (state === "caught") {
     setText("fineAmt", `Fine: ${fmt(caught.fine)} MAD`);
@@ -1195,7 +1240,75 @@ addEventListener("keydown", e => {
   else if ((k === "shift" || k === "j") && p.y === 0) { p.vy = 9.5; sfx.jump(); }
   else if (k === " ") feedPressed = true;
 });
-addEventListener("blur", () => { held.up = false; if (state === "play") state = "paused"; });
+addEventListener("blur", () => { held.up = false; touchWalk = false; if (state === "play") state = "paused"; });
+
+// ---------- touch: hold to walk, swipe to change lane, swipe up to jump ----------
+let touchWalk = false, swipe = null;
+if (TOUCH) {
+  document.body.classList.add("touch");
+  $("hint").textContent = "Hold your thumb on the screen to walk";
+}
+const cv = renderer.domElement;
+cv.addEventListener("pointerdown", e => {
+  if (state !== "play" || e.pointerType === "mouse") return;
+  audio();
+  swipe = { id: e.pointerId, x: e.clientX, y: e.clientY };
+  touchWalk = true;
+  try { cv.setPointerCapture(e.pointerId); } catch (err) { /* pointer already gone; swipes still work without capture */ }
+});
+cv.addEventListener("pointermove", e => {
+  if (!swipe || e.pointerId !== swipe.id || state !== "play") return;
+  const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y, p = player;
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) {
+    const lane = p.lane + Math.sign(dx);
+    if (lane >= 0 && lane <= 2) { p.lane = lane; sfx.lane(); }
+    swipe.x = e.clientX; swipe.y = e.clientY; // re-arm so one drag can swipe again
+  } else if (dy < -50 && Math.abs(dy) > Math.abs(dx)) {
+    if (p.y === 0) { p.vy = 9.5; sfx.jump(); }
+    swipe.x = e.clientX; swipe.y = e.clientY;
+  }
+});
+const endTouch = e => { if (swipe && e.pointerId === swipe.id) { swipe = null; touchWalk = false; } };
+cv.addEventListener("pointerup", endTouch);
+cv.addEventListener("pointercancel", endTouch);
+$("feedBtn").addEventListener("pointerdown", e => { e.preventDefault(); audio(); if (state === "play") feedPressed = true; });
+$("pauseBtn").addEventListener("click", () => { if (state === "play") state = "paused"; });
+$("resumeBtn").addEventListener("click", () => { if (state === "paused") state = "play"; });
+$("camBtn").addEventListener("click", () => { camMode = 1 - camMode; });
+
+// ---------- tilt: lean forward to walk, left or right to pick a lane ----------
+let tiltOn = false, tiltWalk = false, tiltBase = null;
+function readTilt(e) {
+  if (!tiltOn || e.beta == null || e.gamma == null) return;
+  const a = (screen.orientation && screen.orientation.angle) || window.orientation || 0;
+  let lr, fb;
+  if (a === 90) { lr = e.beta; fb = -e.gamma; }
+  else if (a === -90 || a === 270) { lr = -e.beta; fb = e.gamma; }
+  else if (a === 180) { lr = -e.gamma; fb = -e.beta; }
+  else { lr = e.gamma; fb = e.beta; }
+  if (!tiltBase) tiltBase = { lr, fb }; // the way you hold the phone when tilt is switched on counts as neutral
+  tiltWalk = fb - tiltBase.fb < -10;
+  if (state === "play") {
+    const d = lr - tiltBase.lr, lane = d < -14 ? 0 : d > 14 ? 2 : 1;
+    if (lane !== player.lane) { player.lane = lane; sfx.lane(); }
+  }
+}
+async function toggleTilt() {
+  if (!tiltOn) {
+    try {
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function"
+        && await DeviceOrientationEvent.requestPermission() !== "granted") { toast("Motion access was not allowed", 2200); return; }
+    } catch (err) { toast("Motion access was not allowed", 2200); return; }
+    tiltOn = true; tiltBase = null;
+    addEventListener("deviceorientation", readTilt);
+    toast("Tilt on: lean forward to walk, left or right for lanes", 2600);
+  } else {
+    tiltOn = false; tiltWalk = false;
+    removeEventListener("deviceorientation", readTilt);
+  }
+  $("tiltBtn").textContent = tiltOn ? "Tilt: on" : "Tilt: off";
+}
+$("tiltBtn").addEventListener("click", toggleTilt);
 
 // ---------- loop ----------
 let last = performance.now();

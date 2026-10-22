@@ -4,7 +4,11 @@ A 3D street runner made for Claude Community Build Day. Walk a colourful Morocca
 
 ## Play
 
-Open `feed-or-dont.html` in a browser. It is a single file with Three.js inlined, so it works offline. A decent GPU is recommended.
+Play online (phone or computer): https://khalidelmerrah.github.io/Save-Cats-Morocco/
+
+Or open `feed-or-dont.html` in a browser. It is a single file with Three.js inlined, so it works offline. A decent GPU is recommended.
+
+On a phone: hold your thumb on the screen to walk, swipe left or right to change lane, swipe up to jump, and tap Feed. Tap "Tilt" to steer by leaning the phone instead (needs the HTTPS link above).
 
 | Key | Action |
 | --- | --- |

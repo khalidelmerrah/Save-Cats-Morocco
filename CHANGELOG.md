@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.0] - 2026-10-22
+### Added
+- Phone and touch controls: hold a thumb to walk, swipe left or right to change lane, swipe up to jump, a big Feed button, on-screen Pause and Camera buttons.
+- Optional tilt steering (device motion): lean forward to walk, left or right to pick a lane; asks for permission on iPhone.
+- `index.html` redirect so the game opens at the GitHub Pages root.
+### Changed
+- Phone layout: compact HUD and cards, touch instructions on the menu, wider field of view in portrait.
+- Lighter graphics on touch devices (pixel ratio 1.5, 1024 shadow map, shorter fog distance).
+
 ## [0.5.0] - 2026-10-22 (commit: 056045b)
 ### Added
 - Intro slides explaining Law 19.25 (what it says, why it is debated, your turn); skippable, replayable via "About the law".
