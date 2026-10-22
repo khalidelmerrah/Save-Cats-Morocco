@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.4.0] - 2026-10-22
+## [0.4.0] - 2026-10-22 (commit: c692238)
 ### Changed
 - `feed-or-dont.html` rebuilt on Three.js r149 (inlined, still one offline file): smooth cartoon models with animated limbs, cats with ears and tails, swinging shutters, arched doors, zellige bands, striped awnings, soft shadows, clouds and a distant minaret.
 - Modern HTML UI (HUD pills, title, caught, game-over cards) replaces the pixel font.
